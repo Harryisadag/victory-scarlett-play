@@ -26,6 +26,9 @@ pub mod callhook;
 #[cfg(windows)]
 mod console_insn;
 mod crash;
+// LOCAL (victory-perf, via our wt5): VICTORY_RENDER_SCALE / VICTORY_OWN_UPSCALER / VICTORY_NO_WATCHDOG title patches.
+#[cfg(windows)]
+mod hooks;
 pub mod prepare;
 pub(crate) mod publish;
 pub mod resolve;
