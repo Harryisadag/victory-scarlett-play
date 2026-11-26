@@ -324,7 +324,8 @@ pub(crate) fn ready(p: &Arc<Pending>) -> Option<&HostPipeline> {
     }
     // A still-pending pipeline was requested by the title too. Prewarm it
     // on the next launch, even if this run never got to use it.
-    if !p.used.load(Ordering::Relaxed) && !p.used.swap(true, Ordering::Relaxed) {
+    let first = !p.used.load(Ordering::Relaxed) && !p.used.swap(true, Ordering::Relaxed);
+    if first {
         super::library::note_used(&p.key);
     }
     if p.made.get().is_none() {
@@ -333,7 +334,15 @@ pub(crate) fn ready(p: &Arc<Pending>) -> Option<&HostPipeline> {
         let first = p.asked_ms.load(Ordering::Relaxed) == 0
             && p.asked_ms.compare_exchange(0, stamp(), Ordering::Relaxed, Ordering::Relaxed).is_ok();
         start(p, REQUESTED);
-        wait(p, crate::frame::current(), first);
+        // inkVI patches 0035/0036 (OctoAlgo, GPL-3.0; via gurvancampion 8ac4f577): with
+        // VICTORY_PIPELINE_WAIT_FIRST_MS set, a pipeline's first draw waits for it that long,
+        // outside the frame's budget, instead of being dropped.
+        let first_ms = first_wait();
+        if first && !first_ms.is_zero() {
+            wait_first(p, first_ms);
+        } else {
+            wait(p, crate::frame::current(), first);
+        }
     }
     p.made.get()?.as_ref()
 }
@@ -425,6 +434,54 @@ fn waits_said() {
         n[5],
         waiting(),
     );
+}
+
+/// `VICTORY_PIPELINE_WAIT_FIRST_MS=<ms>` (off unless set; inkVI patches
+/// 0035/0036): a draw or dispatch that is the first to ask for a pipeline
+/// not made yet waits for it up to <ms> (once per pipeline, outside the
+/// frame's budget) instead of being dropped. With warm caches every
+/// pipeline is made before its first draw and nothing waits.
+fn first_wait() -> Duration {
+    static MS: OnceLock<Duration> = OnceLock::new();
+    *MS.get_or_init(|| {
+        let ms = std::env::var("VICTORY_PIPELINE_WAIT_FIRST_MS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        if ms > 0 {
+            tracing::info!(ms, "a pipeline's first draw waits for it (VICTORY_PIPELINE_WAIT_FIRST_MS)");
+        }
+        Duration::from_millis(ms)
+    })
+}
+
+/// First draws that waited under [`first_wait`]: how many, and how many
+/// got their pipeline in time.
+pub(crate) static FIRST_WAITS: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+
+fn wait_first(p: &Pending, most: Duration) {
+    let started = Instant::now();
+    let (lock, done) = &DONE;
+    let mut held = lock.lock().unwrap_or_else(|e| e.into_inner());
+    while p.made.get().is_none() {
+        let rest = most.saturating_sub(started.elapsed());
+        if rest.is_zero() {
+            break;
+        }
+        held = done.wait_timeout(held, rest).unwrap_or_else(|e| e.into_inner()).0;
+    }
+    drop(held);
+    let n = FIRST_WAITS[0].fetch_add(1, Ordering::Relaxed) + 1;
+    let made = if p.made.get().is_some() {
+        FIRST_WAITS[1].fetch_add(1, Ordering::Relaxed) + 1
+    } else {
+        FIRST_WAITS[1].load(Ordering::Relaxed)
+    };
+    if n.is_power_of_two() {
+        tracing::info!(first_waits = n, first_waits_made = made, "pipeline first waits");
+    }
+    #[cfg(feature = "diagnostics")]
+    crate::copystat::add(crate::copystat::C::PipelineWaitUs, started.elapsed().as_micros() as u64);
 }
 
 /// Makes `p` on this thread if it is not made yet (waiting for a worker
@@ -946,6 +1003,8 @@ fn drained() {
             made = MADE.load(Ordering::Relaxed),
             loaded = LOADED.load(Ordering::Relaxed),
             started_early = EARLY.load(Ordering::Relaxed),
+            first_waits = FIRST_WAITS[0].load(Ordering::Relaxed),
+            first_waits_made = FIRST_WAITS[1].load(Ordering::Relaxed),
             "host pipelines all made"
         );
     }
