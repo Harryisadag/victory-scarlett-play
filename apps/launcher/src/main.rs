@@ -865,6 +865,19 @@ fn ui_rt(ui: &mut egui::Ui, rt: &mut config::RtSettings, nvidia: bool, gpu: &str
             });
         });
         ui.end_row();
+        ui.label("Shaders");
+        ui.horizontal(|ui| {
+            let mut wait = rt.first_wait_ms > 0;
+            if ui
+                .checkbox(&mut wait, "Wait for a new shader instead of skipping what uses it")
+                .on_hover_text("Fewer black or missing objects while shaders are still being built (a fresh cache, after an update), at the cost of short stutters. inkVI's first-use wait")
+                .changed()
+            {
+                rt.first_wait_ms = if wait { 250 } else { 0 };
+                changed = true;
+            }
+        });
+        ui.end_row();
         ui.label("Speed");
         ui.horizontal(|ui| {
             changed |= ui.radio_value(&mut rt.fast, true, "Fast (recommended)").changed();
@@ -873,6 +886,20 @@ fn ui_rt(ui: &mut egui::Ui, rt: &mut config::RtSettings, nvidia: bool, gpu: &str
         ui.end_row();
     });
     changed |= ui.checkbox(&mut rt.hdr, "HDR10 (turn Windows HDR on first)").changed();
+    changed |= ui
+        .checkbox(&mut rt.partial_textures, "Partial texture refresh (experimental: froze the game in a test)")
+        .on_hover_text("Ahmedx360: a changed texture is re-read only where it changed. Less CPU per frame; new, turn off if textures look wrong")
+        .changed();
+    changed |= ui
+        .checkbox(&mut rt.clean_skin, "Cleaner character skin (may cost some fps)")
+        .on_hover_text("victory-sley-fork measured no more pixelated, noisy skin with textures refreshed only once memory holds still")
+        .changed();
+    ui.horizontal(|ui| {
+        ui.label("Texture detail:");
+        changed |= ui.radio_value(&mut rt.mip_drop, 0, "Full").changed();
+        changed |= ui.radio_value(&mut rt.mip_drop, 1, "Lower (8 GB cards)").on_hover_text("Large textures one level down: less video memory").changed();
+        changed |= ui.radio_value(&mut rt.mip_drop, 2, "Lowest").changed();
+    });
     if rt.res == "wide" || rt.res.contains('x') {
         changed |= ui.checkbox(&mut rt.ui_stretch, "Stretch the interface across the ultrawide screen (instead of 16:9 in the middle)").changed();
     }

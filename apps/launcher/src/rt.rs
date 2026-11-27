@@ -124,6 +124,8 @@ pub fn fit_low_vram(rt: &mut RtSettings) {
     }
     rt.series_s = true;
     rt.framegen = 1;
+    // Large textures one level down: frees texture blocks on an 8 GB card (LightYearZh).
+    rt.mip_drop = rt.mip_drop.max(1);
     rt.ray_tracing = false;
     if rt.dlss == "quality" || rt.dlss == "dlaa" || rt.dlss == "balanced" {
         rt.dlss = "performance".into();
@@ -188,10 +190,22 @@ pub fn args(rt: &RtSettings, series_s: bool, mouse: bool, cut_hold: bool) -> Vec
     if cut_hold {
         set("VICTORY_CUT_HOLD", "wait");
     }
+    if rt.partial_textures {
+        set("VICTORY_TEXTURE_PARTS", "1");
+    }
+    if rt.first_wait_ms > 0 {
+        set("VICTORY_PIPELINE_WAIT_FIRST_MS", &rt.first_wait_ms.min(2000).to_string());
+    }
+    if rt.mip_drop > 0 {
+        set("VICTORY_TEXTURE_MIP_DROP", &rt.mip_drop.min(3).to_string());
+    }
     if rt.fast {
         for (k, v) in FAST {
             set(k, v);
         }
+    }
+    if rt.clean_skin {
+        set("VICTORY_TEXTURE_NO_WAIT", "0");
     }
     let mut out = vec!["--res".to_owned(), res.to_owned(), "--dlss".to_owned(), rt.dlss.clone(), "--fps".to_owned(), rt.fps_cap.clamp(1, 1000).to_string()];
     // Which frame generation (trustno1 29d8dbf7): DLSS's, AMD FSR 3's, or auto (DLSS where the card has it).
@@ -282,7 +296,8 @@ mod tests {
         assert!(too_heavy_for(&rt, 16.0).is_empty());
         fit_low_vram(&mut rt);
         assert!(too_heavy_for(&rt, 7.8).is_empty());
-        assert_eq!((rt.res.as_str(), rt.dlss.as_str(), rt.framegen, rt.series_s), ("1440", "performance", 1, true));
+        assert_eq!((rt.res.as_str(), rt.dlss.as_str(), rt.framegen, rt.series_s, rt.mip_drop), ("1440", "performance", 1, true, 1));
+        assert!(args(&rt, true, false, false).contains(&"VICTORY_TEXTURE_MIP_DROP=1".to_owned()));
     }
 
     #[test]

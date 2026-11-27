@@ -59,6 +59,17 @@ pub struct RtSettings {
     pub cut_hold: bool,
     /// Which frame generation: `auto` (DLSS where the card has it, else AMD FSR 3), `dlss`, `fsr`.
     pub fg_type: String,
+    /// Fixes taken from other forks, newest and not yet measured here (engine-rt): the partial texture refresh
+    /// (Ahmedx360, `VICTORY_TEXTURE_PARTS`).
+    pub partial_textures: bool,
+    /// A pipeline's first draw waits up to this long for it instead of being dropped (`VICTORY_PIPELINE_WAIT_FIRST_MS`,
+    /// inkVI via gurvancampion): fewer missing objects on a fresh cache, more stutter. 0: off.
+    pub first_wait_ms: u32,
+    /// Textures are refreshed only once title memory holds still (`VICTORY_TEXTURE_NO_WAIT=0`): victory-sley-fork
+    /// measured no more pixelated, noisy skin on characters. Off: the layer's own (=1).
+    pub clean_skin: bool,
+    /// Large textures start this many levels down (`VICTORY_TEXTURE_MIP_DROP`, LightYearZh; 0..=3): for 8 GB cards.
+    pub mip_drop: u32,
 }
 
 impl Default for RtSettings {
@@ -80,6 +91,10 @@ impl Default for RtSettings {
             scarlett_fixes: true,
             cut_hold: false,
             fg_type: "auto".into(),
+            partial_textures: false,
+            first_wait_ms: 0,
+            clean_skin: false,
+            mip_drop: 0,
         }
     }
 }
