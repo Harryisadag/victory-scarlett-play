@@ -221,6 +221,9 @@ pub fn args(rt: &RtSettings, series_s: bool, mouse: bool, cut_hold: bool) -> Vec
     if rt.clean_skin {
         set("VICTORY_TEXTURE_NO_WAIT", "0");
     }
+    if rt.indoor_reflections {
+        set("VICTORY_AMBIENT_SPECULAR_HALF_DEPTH", "1");
+    }
     let mut out = vec!["--res".to_owned(), res.to_owned(), "--dlss".to_owned(), rt.dlss.clone(), "--fps".to_owned(), rt.fps_cap.clamp(1, 1000).to_string()];
     // Which frame generation (trustno1 29d8dbf7): DLSS's, AMD FSR 3's, or auto (DLSS where the card has it).
     if matches!(rt.fg_type.as_str(), "auto" | "dlss" | "fsr") {

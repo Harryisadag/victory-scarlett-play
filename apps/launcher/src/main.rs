@@ -903,6 +903,10 @@ fn ui_rt(ui: &mut egui::Ui, rt: &mut config::RtSettings, nvidia: bool, gpu: &str
         .checkbox(&mut rt.clean_skin, "Cleaner character skin (may cost some fps)")
         .on_hover_text("victory-sley-fork measured no more pixelated, noisy skin with textures refreshed only once memory holds still")
         .changed();
+    changed |= ui
+        .checkbox(&mut rt.indoor_reflections, "Indoor floor reflections fix (experimental: frosted, speckled floors)")
+        .on_hover_text("Indoors, reflections that find nothing take the room's light instead of the sky's. New: turn off if floors look wrong")
+        .changed();
     ui.horizontal(|ui| {
         ui.label("Texture detail:");
         changed |= ui.radio_value(&mut rt.mip_drop, 0, "Full").changed();
