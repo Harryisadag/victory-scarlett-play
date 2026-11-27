@@ -1667,7 +1667,12 @@ impl Staging {
             // only the affected subresources. Keep the original full refresh
             // for the first fill and levels-on-demand textures, whose held
             // level judgement can change independently of title writes.
-            let read_bytes = if previous != 0 && !self.on_demand && !exact {
+            let read_bytes = if previous != 0
+                && !self.on_demand
+                && !exact
+                && !self.layout.thick
+                && self.layout.desc.dimension != victory_formats::texture::Dimension::Tex3d
+            {
                 let selected = self.dirty_parts(&written, previous);
                 if selected.iter().any(|&dirty| dirty) {
                     with_read(size, |read| {
@@ -2044,7 +2049,7 @@ impl Staging {
     }
 
     /// Detiles only selected subresources; untouched staging bytes remain
-    /// intact and are not copied to the host texture.
+    /// intact for the existing upload path.
     fn detile_parts(&self, tiled: &[u8], selected: Option<&[bool]>) {
         self.dirty.store(true, std::sync::atomic::Ordering::Relaxed);
         // Levels on demand: which levels are the title's is judged here,
