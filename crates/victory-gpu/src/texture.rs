@@ -1667,7 +1667,7 @@ impl Staging {
             // only the affected subresources. Keep the original full refresh
             // for the first fill and levels-on-demand textures, whose held
             // level judgement can change independently of title writes.
-            let read_bytes = if previous != 0 && !self.on_demand {
+            let read_bytes = if previous != 0 && !self.on_demand && !exact {
                 let selected = self.dirty_parts(&written, previous);
                 if selected.iter().any(|&dirty| dirty) {
                     with_read(size, |read| {
