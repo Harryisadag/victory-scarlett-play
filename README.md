@@ -17,15 +17,27 @@ keeps it up to date.
   - a fix for a crash when the game uses a page of memory while the rest of its view is remapped,
   - pipelines the game uses are recorded and compiled ahead of the next start (no pop-in on first visits),
   - test fixes.
-- A second game layer to choose in the launcher, **NVIDIA-RT**: [Kemerd/VIctory-NVIDIA-RT](https://github.com/Kemerd/VIctory-NVIDIA-RT)
-  `rt-test-9` (`60368f80`) plus the RTX 50-series shader fix, on this repository's branch `engine-rt`, built from
-  source. A faster frame pipeline (its author: 11.8 -> 21.9 fps median on an RTX 5090), DLSS, DLSS frame generation
-  up to 6x, NVIDIA Reflex, HDR10, 21:9 and 32:9. NVIDIA's DLSS files are not included: the launcher fetches them
-  from NVIDIA's own GitHub on your PC, once, when you ask it to.
-- `apps/launcher`: the launcher (Windows app): hardware check, settings picked for your PC, the choice of game layer
-  and its settings, a one-time first-run setup (Scarlett), Play, verify game files (read-only), storage (cache sizes,
-  clearing a cache), the launcher minimised while you play, help after a lost-device crash (including a one-click
-  `TdrDelay`), crash files kept with the logs, update check, opt-in reports.
+- The default game layer, **NVIDIA-RT** (branch `engine-rt`, built from source): [Kemerd/VIctory-NVIDIA-RT](https://github.com/Kemerd/VIctory-NVIDIA-RT)
+  `rt-test-9` on [trustno1-coder/VIctory-NVIDIA](https://github.com/trustno1-coder/VIctory-NVIDIA) (up to its
+  FSR 3 frame generation and Windows 10 runtime), with what the other forks did best, each named in the history:
+  - from the Scarlett build: its light probes (no violet vegetation), depth planes given in time for tiled lighting,
+    the scene-change wait (off), storage workers per physical core, the title's watchdog off, faster XMA decoding;
+  - the RTX 50-series shader fix; a fix for the 0x80070057 crash (EduardoMFOliveira); the shader first-use wait
+    (inkVI, via gurvancampion; off); the texture level drop for 8 GB cards (LightYearZh); the partial texture
+    refresh (Ahmedx360; off, it froze a test); the F1 menu mouse fix and thread-group fix (trustno1's pull requests);
+    the purple-vegetation filter (WASDeKeys); a fence fix (VIscosity);
+  - this repository's own: mouse look with F2 / ~ to free the pointer, and the audio decoding thread in Windows'
+    Pro Audio class (sound broke up in heavy scenes on an 8-core CPU).
+
+  DLSS, DLSS frame generation up to 6x (RTX 40/50), AMD FSR 3 frame generation (2x, other cards), NVIDIA Reflex,
+  HDR10, 21:9 and 32:9, PS5 pads. On your PC: about 15-25 fps in the world on a Ryzen 7 3700X + RTX 5070 Ti (the
+  CPU is the limit in dense places). NVIDIA's and AMD's files are not included: the launcher fetches them from
+  NVIDIA's and AMD's own GitHub, checked, when you ask it to.
+- `apps/launcher`: the launcher (Windows app): hardware check, NVIDIA-RT's settings (fitted to cards under 10 GB of
+  video memory), Scarlett as the other layer (and AMD cards' default), an optional shader preload, the one-time
+  warm-up restart of a new build, Play, saves (backed up before every Play, export, import from other builds and
+  XCL), verify game files (read-only), storage, the launcher minimised while you play, help after a lost-device
+  crash (including a one-click `TdrDelay`), crash files kept with the logs, update check, opt-in reports.
 - `relay`: the small server the opt-in reports go through.
 
 ## Play
