@@ -10,6 +10,7 @@ mod jobs;
 mod presets;
 mod report;
 mod fsr;
+mod pcpresets;
 mod rt;
 mod saves;
 mod update;
@@ -164,8 +165,9 @@ impl App {
             app.cfg.engine = Engine::Scarlett;
             app.cfg.save();
         }
-        if first_start && app.hw.vram_gb > 0.0 && app.hw.vram_gb < 10.0 {
-            rt::fit_low_vram(&mut app.cfg.rt);
+        // A first start: NVIDIA-RT's settings from the preset this PC gets (8 GB cards, CPU-limited, mid, high-end).
+        if first_start {
+            pcpresets::pick(&app.hw).apply(&mut app.cfg.rt);
             app.cfg.save();
         }
         // A saved choice of a layer this folder does not have falls back to Scarlett.
@@ -472,6 +474,7 @@ impl eframe::App for App {
                     });
                     let scarlett = self.cfg.engine == Engine::Scarlett;
                     if !scarlett {
+                        changed |= ui_preset(ui, &mut self.cfg.rt, &self.hw);
                         changed |= ui_rt(ui, &mut self.cfg.rt, self.hw.vendor == hardware::Vendor::Nvidia, &self.hw.gpu, self.hw.vram_gb);
                         changed |= ui
                             .checkbox(&mut self.cfg.rt.scarlett_fixes, "Scarlett's fixes (depth planes in time for tiled lighting, storage workers per CPU core)")
@@ -1144,4 +1147,36 @@ impl App {
             }
         });
     }
+}
+
+/// NVIDIA-RT's PC preset: which one this PC was given, the one the settings hold now (or Custom), and a choice.
+fn ui_preset(ui: &mut egui::Ui, rt: &mut config::RtSettings, hw: &hardware::Hardware) -> bool {
+    let mut changed = false;
+    let suggested = pcpresets::pick(hw);
+    let now = pcpresets::matching(rt);
+    ui.horizontal(|ui| {
+        ui.label("PC preset:");
+        egui::ComboBox::from_id_salt("pc-preset")
+            .selected_text(match now {
+                Some(p) if p == suggested => format!("{} (picked for this PC)", p.label()),
+                Some(p) => p.label().to_owned(),
+                None => "Custom".to_owned(),
+            })
+            .width(360.0)
+            .show_ui(ui, |ui| {
+                for p in pcpresets::ALL {
+                    let text = if p == suggested { format!("{} (picked for this PC)", p.label()) } else { p.label().to_owned() };
+                    if ui.selectable_label(now == Some(p), text).on_hover_text(p.about()).clicked() && now != Some(p) {
+                        p.apply(rt);
+                        changed = true;
+                    }
+                }
+            });
+    });
+    let about = match now {
+        Some(p) => p.about().to_owned(),
+        None => format!("Your own settings. For this PC: {} - {}", suggested.label(), suggested.about()),
+    };
+    ui.label(RichText::new(about).small().weak());
+    changed
 }
