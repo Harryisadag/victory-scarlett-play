@@ -60,7 +60,7 @@ pub fn chosen<'a>(cfg: &Config, hw: &Hardware) -> &'a Preset {
     cfg.preset.as_deref().and_then(by_name).unwrap_or_else(|| pick(hw))
 }
 
-/// Scarlett's standing set (scripts/play-scarlett.ps1 at 835ca60, with the pipeline book).
+/// Scarlett's standing set (scripts/play-scarlett.ps1 at bc264a4, with the pipeline book).
 const BASE: &[(&str, &str)] = &[
     ("VICTORY_JOIN_COPIES", "1"),
     ("VICTORY_REFRESH_ONCE", "1"),
@@ -105,6 +105,13 @@ const BASE: &[(&str, &str)] = &[
     ("VICTORY_BAKE_TEXTURES_MS", "10000"),
     ("VICTORY_PLANE_NOW", "1"),
     ("VICTORY_PIPELINE_BOOK", "1"),
+    // Scarlett bc264a4: the freeze fix (batch page-mapping copies' views mapped only when touched: 5-second periods
+    // with a freeze 10-12 -> 3), static-sampler pipelines compiled each run instead of loaded from the library
+    // (wrong light or faces in some runs), table slots a program can read only, texture-queue marks.
+    ("VICTORY_SOFT_VIEWS", "copies"),
+    ("VICTORY_SAMPLERS_MADE", "1"),
+    ("VICTORY_TABLE_NAMED_ONLY", "1"),
+    ("VICTORY_QUEUE_MARKS", "1"),
 ];
 
 /// Everything that changes the shader translation (a change needs the shaders translated again).
@@ -139,5 +146,10 @@ pub fn environment(cfg: &Config, hw: &Hardware) -> (Vec<(String, String)>, &'sta
         set("VICTORY_GPU_ONLY", "1");
         set("VICTORY_KNOWN_WRITES", "1");
     }
-    (env, preset.console)
+    let console = match cfg.console.as_deref() {
+        Some("series-x") => "series-x",
+        Some("series-s") => "series-s",
+        _ => preset.console,
+    };
+    (env, console)
 }

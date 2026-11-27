@@ -21,6 +21,9 @@ pub struct Config {
     /// A preset name from `presets::ALL`, or `None` for the one picked from the hardware.
     pub preset: Option<String>,
     pub lighting: Lighting,
+    /// `Some("series-x")` / `Some("series-s")`: the console the game is told it runs on; `None`: the preset's.
+    /// Series S renders at a lower resolution with smaller memory budgets (helps the graphics card, not the CPU).
+    pub console: Option<String>,
     /// Scarlett's memory hooks (faster; a few small textures can show old contents for a moment).
     pub hooks: bool,
     /// `None`: not answered yet - reports are on by default (the first-start notice says so); `Some(false)`: off.
@@ -39,6 +42,7 @@ impl Default for Config {
             game_dir: None,
             preset: None,
             lighting: Lighting::Fast,
+            console: None,
             hooks: false,
             reports: None,
             report_screenshots: true,

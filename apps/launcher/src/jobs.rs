@@ -67,9 +67,11 @@ fn say(s: &Arc<Mutex<Status>>, step: &str, detail: &str, progress: f32) {
 /// What the setup was done for: this build, these translation settings, this game folder.
 pub fn setup_key(exe: &std::path::Path, cfg: &Config) -> String {
     format!(
-        "{}|{}|{}",
+        "{}|{}|{}|{}|{}",
         game::build_stamp(exe),
         presets::translation_key(cfg),
+        cfg.preset.as_deref().unwrap_or("auto"),
+        cfg.console.as_deref().unwrap_or("preset"),
         cfg.game_dir.as_deref().map(|p| p.display().to_string()).unwrap_or_default()
     )
 }

@@ -103,6 +103,39 @@ impl Hardware {
     }
 }
 
+/// RAM free right now and RAM + page file free right now, in GB.
+pub fn free_now() -> (f64, f64) {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    // SAFETY: plain data; the size is set before the call.
+    let mut m: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    m.dwLength = size_of::<MEMORYSTATUSEX>() as u32;
+    // SAFETY: a valid out pointer.
+    if unsafe { GlobalMemoryStatusEx(&mut m) } == 0 {
+        return (0.0, 0.0);
+    }
+    let gb = |b: u64| b as f64 / (1u64 << 30) as f64;
+    (gb(m.ullAvailPhys), gb(m.ullAvailPageFile))
+}
+
+/// What the game needs free to run without freezes: it and the layer commit about 31-34 GB.
+pub fn memory_advice(free_ram: f64, free_commit: f64) -> Option<(bool, String)> {
+    if free_commit < 34.0 {
+        return Some((
+            true,
+            format!(
+                "Only {free_commit:.0} GB of RAM + page file is free, and the game needs about 34. Close browsers, downloads and other programs first - otherwise Windows may stop the game or other programs."
+            ),
+        ));
+    }
+    if free_ram < 18.0 {
+        return Some((
+            false,
+            format!("{free_ram:.0} GB of RAM is free right now. Closing browsers and big downloads before playing avoids freezes at scene loads."),
+        ));
+    }
+    None
+}
+
 fn memory(h: &mut Hardware) {
     use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
     // SAFETY: plain data; the size is set before the call.

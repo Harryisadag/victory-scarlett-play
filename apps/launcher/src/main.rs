@@ -390,6 +390,21 @@ impl eframe::App for App {
                         changed |= ui.radio_value(&mut self.cfg.lighting, Lighting::Balanced, "Balanced").on_hover_text("No ray tracing, a fill light in the shadows: same speed, an approximation").changed();
                         changed |= ui.radio_value(&mut self.cfg.lighting, Lighting::RayTraced, "Ray traced").on_hover_text("The game's own ray tracing: right lighting, much slower").changed();
                     });
+                    ui.horizontal(|ui| {
+                        ui.label("Console mode:");
+                        let preset_console = current.console;
+                        changed |= ui
+                            .radio_value(&mut self.cfg.console, None, format!("Automatic ({})", if preset_console == "series-s" { "Series S" } else { "Series X" }))
+                            .changed();
+                        changed |= ui
+                            .radio_value(&mut self.cfg.console, Some("series-x".into()), "Series X")
+                            .on_hover_text("Full resolution (the game renders at 1440p and upscales)")
+                            .changed();
+                        changed |= ui
+                            .radio_value(&mut self.cfg.console, Some("series-s".into()), "Series S")
+                            .on_hover_text("Lower resolution and smaller memory budgets: easier on the graphics card and VRAM; does little for a slow CPU")
+                            .changed();
+                    });
                     changed |= ui.checkbox(&mut self.cfg.hooks, "Faster memory hooks (10-15 ms a frame less; a few small textures may flicker)").changed();
                     if report::available() {
                         let mut on = self.cfg.reports != Some(false);
@@ -415,6 +430,22 @@ impl eframe::App for App {
                 if !setup_done {
                     ui.label("First-run setup has not been done for this build and these settings. It translates the game's shaders, plays the opening by itself to record the graphics it needs, and compiles them ahead - so faces, skin and the first scenes come out right the first time. About 15 minutes, once.");
                     ui.checkbox(&mut self.record_opening, "Include the opening recording (recommended; uses a separate, temporary save)");
+                }
+                if self.job.is_none() {
+                    let (free_ram, free_commit) = hardware::free_now();
+                    match hardware::memory_advice(free_ram, free_commit) {
+                        Some((true, text)) => {
+                            ui.colored_label(Color32::from_rgb(220, 80, 70), format!("✖ {text}"));
+                        }
+                        Some((false, text)) => {
+                            ui.colored_label(Color32::from_rgb(210, 160, 50), format!("⚠ {text}"));
+                        }
+                        None => {
+                            ui.label(RichText::new(format!("{free_ram:.0} GB of RAM free - good.")).small().weak());
+                        }
+                    }
+                    // Keep the figure current while the window is open.
+                    ctx.request_repaint_after(std::time::Duration::from_secs(3));
                 }
                 ui.horizontal(|ui| {
                     let can = ready && !busy;
