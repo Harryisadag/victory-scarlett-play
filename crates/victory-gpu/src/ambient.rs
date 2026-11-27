@@ -460,15 +460,14 @@ void raise(uint3 at : SV_DispatchThreadID) {
     found = all + 1.2 * float3(dot(sr.xyz, n), dot(sg.xyz, n), dot(sb.xyz, n)) / sum;
     found = clamp(found, 0.2 * all, 2.5 * all);
     found = lerp(found, cells[CELLS].rgb, 0.2) * level * open;
-    float3 was = unpack(light[p]);
     // Magenta/violet garbage the probes' memory held (green far under red and
-    // blue): dropped, as VIctory-Belobug-AMD does (ambient.rs, "Filter magenta
-    // garbage probes"). Seen on an RTX 5080 as a purple-blue glow on a lit
-    // sheet of paper in the prison cell; not an AMD-only fault.
+    // blue): dropped from the new estimate too, not just from what was there
+    // before. Seen on an RTX 5080 as purple vegetation and a purple-blue glow
+    // on lit surfaces indoors; not an AMD-only fault.
+    if (found.g < 0.5 * min(found.r, found.b) && max(found.r, found.b) > 0.02) found = 0.0;
+    if (found.b > 2.5 * found.g && found.b > found.r && found.b > 0.02) found = 0.0;
+    float3 was = unpack(light[p]);
     if (was.g < 0.5 * min(was.r, was.b) && max(was.r, was.b) > 0.02) was = 0.0;
-    // And the bluer kind of it (blue over 2.5x green and over red): left as
-    // a faint violet by the line above. The sky's light keeps green above
-    // 0.4x blue, sunsets keep blue low, so neither is touched.
     if (was.b > 2.5 * was.g && was.b > was.r && was.b > 0.02) was = 0.0;
     // What the program left counts as far as it can be true: the sky's light
     // outdoors, not the blocks of other memory.
