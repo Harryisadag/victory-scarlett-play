@@ -2950,16 +2950,6 @@ pub(crate) fn lost(what: &'static str, at: usize, len: usize) {
 /// place is under way and none begins ([`title_memory_reading`]). Taken
 /// around the whole change, the unmapping and the mapping again.
 pub fn title_memory_remapping() -> Remapping {
-    // For the title's own threads ([`came_back`]).
-    install();
-    let met = MET.load(std::sync::atomic::Ordering::Relaxed);
-    if met != 0 {
-        static SAID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        if met >= 2 * SAID.load(std::sync::atomic::Ordering::Relaxed) {
-            SAID.store(met, std::sync::atomic::Ordering::Relaxed);
-            tracing::info!(met, "accesses of title threads that waited for a change of mapping");
-        }
-    }
     title_memory_remapping_in(&[(0, usize::MAX)])
 }
 
@@ -2970,6 +2960,21 @@ pub fn title_memory_remapping() -> Remapping {
 /// away or makes, even for a moment (the rest of a view unmapped and mapped
 /// again), must be in `ranges`.
 pub fn title_memory_remapping_in(ranges: &[(usize, usize)]) -> Remapping {
+    // For the title's own threads ([`came_back`]): a title thread that uses a
+    // page of a view while the rest of the view is unmapped and mapped again
+    // waits in the handler instead of faulting. (Every change of mapping comes
+    // here since the mapping calls ask by range; before, only
+    // [`title_memory_remapping`] installed it, and a run where nothing else
+    // had yet ended on the first such fault.)
+    install();
+    let met = MET.load(std::sync::atomic::Ordering::Relaxed);
+    if met != 0 {
+        static SAID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        if met >= 2 * SAID.load(std::sync::atomic::Ordering::Relaxed) {
+            SAID.store(met, std::sync::atomic::Ordering::Relaxed);
+            tracing::info!(met, "accesses of title threads that waited for a change of mapping");
+        }
+    }
     let asked = std::time::Instant::now();
     let changing = if fine::on() {
         Changing::Fine(fine::write(ranges))
