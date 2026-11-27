@@ -144,6 +144,12 @@ fn warm(exe: &Path, cfg: &Config, hw: &Hardware, s: &Arc<Mutex<Status>>, cancel:
     }
 }
 
+/// Whether an earlier setup already recorded the opening's pipelines (they stay valid across builds and settings: an
+/// update only needs the shaders translated again and the recorded pipelines compiled).
+pub fn recorded() -> bool {
+    config::cache_dir().join("pipelines").join("known-pipelines.bin").is_file()
+}
+
 /// Plays the opening unattended from a fresh start, so every pipeline it uses is recorded, then stops it.
 fn record_opening(exe: &Path, cfg: &Config, hw: &Hardware, s: &Arc<Mutex<Status>>, cancel: &AtomicBool) -> Result<(), String> {
     let game_dir = cfg.game_dir.clone().ok_or("no game folder")?;

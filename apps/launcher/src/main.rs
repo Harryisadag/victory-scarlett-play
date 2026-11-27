@@ -123,7 +123,7 @@ impl App {
             hw: Hardware::detect(),
             exe: game::victory_exe(),
             job: None,
-            record_opening: true,
+            record_opening: !jobs::recorded(),
             note: None,
             update: UpdateState::Idle,
             reporting: None,
@@ -432,8 +432,13 @@ impl eframe::App for App {
                 let ready = self.cfg.game_dir.is_some() && self.exe.is_some() && !self.blocking();
                 let setup_done = self.setup_done();
                 if !setup_done {
-                    ui.label("First-run setup has not been done for this build and these settings. It translates the game's shaders, plays the opening by itself to record the graphics it needs, and compiles them ahead - so faces, skin and the first scenes come out right the first time. About 15 minutes, once.");
-                    ui.checkbox(&mut self.record_opening, "Include the opening recording (recommended; uses a separate, temporary save)");
+                    if jobs::recorded() {
+                        ui.label("New build or settings: the game's shaders are translated again and the recorded graphics compiled ahead. About 6 minutes. (Play does this by itself too.)");
+                        ui.checkbox(&mut self.record_opening, "Also record the opening again (not needed after an update; about 9 minutes more)");
+                    } else {
+                        ui.label("First-run setup has not been done yet. It translates the game's shaders, plays the opening by itself to record the graphics it needs (it looks rough and runs slowly while it does - don't touch it), and compiles them ahead, so faces, skin and the first scenes come out right when you play. About 15 minutes, once.");
+                        ui.checkbox(&mut self.record_opening, "Include the opening recording (recommended; uses a separate, temporary save)");
+                    }
                 }
                 if self.job.is_none() {
                     let (free_ram, free_commit) = hardware::free_now();
