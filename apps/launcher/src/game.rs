@@ -88,6 +88,9 @@ pub struct Watch {
     pub panicked: bool,
     pub peak_private_gb: f64,
     pub shots: Vec<Vec<u8>>,
+    /// A preload's own progress lines (its steps' counts), kept apart from `tail`: its last step logs thousands of
+    /// other lines between two of them.
+    pub progress: std::collections::VecDeque<String>,
 }
 
 impl Watch {
@@ -150,6 +153,12 @@ pub fn follow(child: &mut Child, log: PathBuf, watch: Arc<Mutex<Watch>>, progres
                 }
                 if line.contains("panic on thread") || line.contains("host GPU failure") {
                     w.panicked = true;
+                }
+                if crate::jobs::is_preload_progress(&line) {
+                    w.progress.push_back(line.clone());
+                    if w.progress.len() > 200 {
+                        w.progress.pop_front();
+                    }
                 }
                 w.tail.push_back(line);
                 if w.tail.len() > 400 {
