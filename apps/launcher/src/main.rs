@@ -375,6 +375,10 @@ impl eframe::App for App {
                     let current = presets::chosen(&self.cfg, &self.hw);
                     let mut changed = false;
                     changed |= ui
+                        .checkbox(&mut self.cfg.kbm, "Mouse & keyboard (GTA PC layout - press F2 or ~ in game to lock the mouse for looking, Esc to free it)")
+                        .on_hover_text("W A S D move, mouse looks, left/right click shoot/aim, Shift sprint, Space jump, F enter vehicle, R reload, Tab weapon wheel, Q cover, E interact, Ctrl crouch, C look back, V camera, P pause, M phone. An Xbox controller works at the same time.")
+                        .changed();
+                    changed |= ui
                         .checkbox(&mut self.cfg.cut_hold, "Hold the picture at scene changes until the scene has loaded")
                         .on_hover_text("After a camera cut the last picture stays up to 0.8 s while the new scene streams in, instead of showing black ground and missing textures")
                         .changed();
@@ -408,6 +412,13 @@ impl eframe::App for App {
                             changed |= ui.radio_value(&mut self.cfg.lighting, Lighting::Balanced, "Brighter shadows").on_hover_text("Adds a fill light where shadows come out too dark: same speed, an approximation").changed();
                             changed |= ui.radio_value(&mut self.cfg.lighting, Lighting::RayTraced, "Ray traced").on_hover_text("The game's own ray tracing: right lighting, much slower").changed();
                         });
+                        if self.cfg.kbm {
+                            ui.horizontal(|ui| {
+                                ui.label("Mouse sensitivity:");
+                                changed |= ui.add(egui::Slider::new(&mut self.cfg.mouse_sensitivity, 0.25..=3.0).step_by(0.05)).changed();
+                                changed |= ui.checkbox(&mut self.cfg.mouse_invert_y, "Invert Y").changed();
+                            });
+                        }
                         ui.horizontal(|ui| {
                             ui.label("Console mode:");
                             let preset_console = current.console;

@@ -144,6 +144,13 @@ pub fn environment(cfg: &Config, hw: &Hardware) -> (Vec<(String, String)>, &'sta
         }
         Lighting::RayTraced => set("VICTORY_BVH_BUILDER", "1"),
     }
+    if cfg.kbm {
+        set("VICTORY_KBM_GTA", "1");
+        set("VICTORY_MOUSE_SENS", &format!("{:.2}", cfg.mouse_sensitivity.clamp(0.1, 5.0)));
+        if cfg.mouse_invert_y {
+            set("VICTORY_MOUSE_INVERT_Y", "1");
+        }
+    }
     if cfg.cut_hold {
         set("VICTORY_CUT_HOLD", "1");
     }

@@ -28,6 +28,10 @@ pub struct Config {
     pub hooks: bool,
     /// Experimental: keep the last picture at a scene change while streaming catches up (`VICTORY_CUT_HOLD=1`).
     pub cut_hold: bool,
+    /// Mouse and keyboard in a GTA V PC layout (`VICTORY_KBM_GTA=1`; F2 or ~ locks the mouse for looking).
+    pub kbm: bool,
+    pub mouse_sensitivity: f32,
+    pub mouse_invert_y: bool,
     /// `None`: not answered yet - reports are on by default (the first-start notice says so); `Some(false)`: off.
     pub reports: Option<bool>,
     pub report_screenshots: bool,
@@ -47,6 +51,9 @@ impl Default for Config {
             console: None,
             hooks: true,
             cut_hold: true,
+            kbm: true,
+            mouse_sensitivity: 1.0,
+            mouse_invert_y: false,
             reports: None,
             report_screenshots: true,
             install_id: new_id(),
