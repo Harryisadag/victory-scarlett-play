@@ -377,7 +377,21 @@ pub(crate) fn sampler_table() -> bool {
 
 /// Sampler slots kept after the title's in every sampler heap, for the
 /// tables of [`sampler_table`].
-pub(crate) const SAMPLER_TAIL: u32 = 256;
+pub(crate) const SAMPLER_TAIL_DEFAULT: u32 = 256;
+
+/// The tail's length: `VICTORY_SAMPLER_TAIL` (16 to 1,792), else 256. Its 256 slots filled after 72 blocks in a
+/// player's session (`sampler_tables=[72, 256, 737, 1004, 0]`): 1,004 stages went back to static samplers, so their
+/// pipelines skipped the library and the driver made them again in every run (965 of 969 made, 300 s of compiles
+/// after an engine update left the driver's cache cold). Read once; the pipelines' root signatures do not depend on it.
+pub(crate) fn sampler_tail_len() -> u32 {
+    static LEN: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *LEN.get_or_init(|| {
+        std::env::var("VICTORY_SAMPLER_TAIL")
+            .ok()
+            .and_then(|v| v.trim().parse::<u32>().ok())
+            .map_or(SAMPLER_TAIL_DEFAULT, |n| n.clamp(16, 1792))
+    })
+}
 
 /// How many slots a sampler heap of the host gets past the title's: none
 /// unless the sampler tables are on. Read by `HostHeap::new` when it makes
@@ -385,7 +399,7 @@ pub(crate) const SAMPLER_TAIL: u32 = 256;
 /// tables have no room before it is made).
 #[allow(dead_code)]
 pub(crate) fn sampler_tail() -> u32 {
-    if sampler_table() { SAMPLER_TAIL } else { 0 }
+    if sampler_table() { sampler_tail_len() } else { 0 }
 }
 
 /// A sampler description in words, to tell two apart (floats by their bits).
@@ -497,13 +511,13 @@ impl SamplerBlocks {
     /// before for the same descriptions, else a new one. None for none or
     /// too many descriptions, or when the tail is full.
     fn block(&mut self, descs: &[D3D12_SAMPLER_DESC]) -> Option<u32> {
-        let n = u32::try_from(descs.len()).ok().filter(|&n| n > 0 && n <= SAMPLER_TAIL)?;
+        let n = u32::try_from(descs.len()).ok().filter(|&n| n > 0 && n <= sampler_tail_len())?;
         let keys: Vec<SamplerKey> = descs.iter().map(sampler_key).collect();
         if let Some(b) = self.list.iter().find(|b| b.keys == keys) {
             return Some(b.offset);
         }
         let offset = self.used;
-        if offset + n > SAMPLER_TAIL {
+        if offset + n > sampler_tail_len() {
             return None;
         }
         self.used += n;
@@ -538,7 +552,7 @@ pub(crate) fn table_heap() -> Option<&'static ID3D12DescriptorHeap> {
         let heap: ID3D12DescriptorHeap = unsafe {
             host.device.CreateDescriptorHeap(&D3D12_DESCRIPTOR_HEAP_DESC {
                 Type: D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
-                NumDescriptors: SAMPLER_TAIL,
+                NumDescriptors: sampler_tail_len(),
                 Flags: D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
                 NodeMask: 0,
             })
@@ -558,7 +572,7 @@ pub(crate) fn table_heap() -> Option<&'static ID3D12DescriptorHeap> {
         unsafe {
             let step = host.device.GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER) as usize;
             let start = heap.GetCPUDescriptorHandleForHeapStart();
-            for i in 0..SAMPLER_TAIL as usize {
+            for i in 0..sampler_tail_len() as usize {
                 host.device.CreateSampler(&desc, D3D12_CPU_DESCRIPTOR_HANDLE { ptr: start.ptr + i * step });
             }
         }
@@ -599,7 +613,7 @@ impl SamplerTail {
                 heap.GetGPUDescriptorHandleForHeapStart().ptr,
             )
         };
-        let slots = count.checked_sub(first)?.min(SAMPLER_TAIL);
+        let slots = count.checked_sub(first)?.min(sampler_tail_len());
         if slots == 0 || step == 0 {
             return None;
         }
@@ -1487,9 +1501,9 @@ mod tests {
         assert_eq!(blocks.block(&[one(0x15), one(0)]), Some(3));
         assert_eq!((blocks.list.len(), blocks.used), (3, 5));
         assert_eq!(blocks.block(&[]), None);
-        let many = vec![one(0); SAMPLER_TAIL as usize + 1];
+        let many = vec![one(0); sampler_tail_len() as usize + 1];
         assert_eq!(blocks.block(&many), None);
-        let rest = vec![one(0x30); (SAMPLER_TAIL - 5) as usize];
+        let rest = vec![one(0x30); (sampler_tail_len() - 5) as usize];
         assert_eq!(blocks.block(&rest), Some(5));
         assert_eq!(blocks.block(&[one(0x31)]), None);
         // What is there is still found when the tail is full.
@@ -1500,7 +1514,7 @@ mod tests {
     /// it has none either.
     #[test]
     fn the_tail_needs_the_switch_and_room() {
-        assert_eq!(sampler_tail(), if sampler_table() { SAMPLER_TAIL } else { 0 });
+        assert_eq!(sampler_tail(), if sampler_table() { sampler_tail_len() } else { 0 });
         let Some(host) = host() else { return };
         // SAFETY: plain heap creation.
         let heap: ID3D12DescriptorHeap = unsafe {

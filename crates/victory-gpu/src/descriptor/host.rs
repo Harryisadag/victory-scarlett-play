@@ -2041,6 +2041,13 @@ impl HostHeap {
             )
         };
         tracing::debug!(count, sampler, "host descriptor heap");
+        if sampler {
+            // The title's sampler heaps against the card's 2,048: how long the tables' tail may be.
+            static MOST: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            if MOST.fetch_max(count, std::sync::atomic::Ordering::Relaxed) < count {
+                tracing::info!(count, tail = crate::pipeline::host::sampler_tail(), "the largest sampler heap of the title so far");
+            }
+        }
         // SAFETY: a live shader-visible heap.
         let gpu = unsafe { heap.GetGPUDescriptorHandleForHeapStart().ptr };
         GPU_RANGES.lock().unwrap_or_else(|e| e.into_inner()).push((
