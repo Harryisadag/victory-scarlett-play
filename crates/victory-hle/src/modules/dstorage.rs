@@ -323,7 +323,7 @@ struct Files {
 
 impl Files {
     fn new(first: std::fs::File, io: Io) -> Files {
-        let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
+        let workers = worker_count();
         let others = match io {
             Io::One => 0,
             Io::Overlapped => 1,
@@ -526,6 +526,65 @@ impl Drop for Queue {
 
 type QueueRef = *const Instance<Queue>;
 
+/// How many storage workers run at once (soldsawn 0bba762,
+/// `VICTORY_DSTORAGE_WORKERS=<n>` sets it outright, 1..=64;
+/// `VICTORY_DSTORAGE_WORKERS=physical`: the PC's PHYSICAL cores, not its
+/// logical processors, the launcher's choice; unset: every logical
+/// processor, as before). The pool reads, inflates and
+/// unpacks in parallel; SMT twins add little and crowd the submitting
+/// thread and the copies. The author on an 8c/16t PC: copying back
+/// 2.4-3.5 ms/MB with 8 against 5.7 ms/MB with 16.
+fn worker_count() -> usize {
+    static COUNT: OnceLock<usize> = OnceLock::new();
+    *COUNT.get_or_init(|| {
+        let logical = std::thread::available_parallelism().map_or(4, |n| n.get());
+        // (Ported from the Scarlett build.) Unset: every logical processor,
+        // as before; `physical`: the physical cores; a number 1..=64: that many.
+        match std::env::var("VICTORY_DSTORAGE_WORKERS").ok().as_deref().map(str::trim) {
+            Some("physical") => physical_cores().unwrap_or_else(|| (logical / 2).max(2)).clamp(1, 32),
+            Some(v) => v.parse::<usize>().ok().filter(|n| (1..=64).contains(n)).unwrap_or(logical),
+            None => logical,
+        }
+    })
+}
+
+/// The PC's physical cores, if the system says (one `RelationProcessorCore`
+/// record per core, whatever its SMT twins).
+fn physical_cores() -> Option<usize> {
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetLogicalProcessorInformationEx(relationship: i32, buffer: *mut u8, length: *mut u32) -> i32;
+        }
+        const RELATION_PROCESSOR_CORE: i32 = 0;
+        let mut len: u32 = 0;
+        // SAFETY: a null buffer asks for the size (the call fails, `len` filled).
+        unsafe { GetLogicalProcessorInformationEx(RELATION_PROCESSOR_CORE, std::ptr::null_mut(), &mut len) };
+        if len == 0 {
+            return None;
+        }
+        let mut buf = vec![0u8; len as usize];
+        // SAFETY: the buffer is `len` bytes; the call writes at most that.
+        if unsafe { GetLogicalProcessorInformationEx(RELATION_PROCESSOR_CORE, buf.as_mut_ptr(), &mut len) } == 0 {
+            return None;
+        }
+        // Records of { Relationship: u32, Size: u32, ... }.
+        let (mut at, mut cores) = (0usize, 0usize);
+        while at + 8 <= (len as usize).min(buf.len()) {
+            let size = u32::from_le_bytes(buf[at + 4..at + 8].try_into().ok()?) as usize;
+            if size < 8 || at + size > buf.len() {
+                break;
+            }
+            cores += 1;
+            at += size;
+        }
+        (cores > 0).then_some(cores)
+    }
+    #[cfg(not(windows))]
+    None
+}
+
 /// Every queue's requests, run by a pool of workers.
 struct Scheduler {
     lanes: Mutex<Lanes>,
@@ -629,7 +688,7 @@ fn scheduler() -> Option<&'static Scheduler> {
         })
         .as_ref()?;
     STARTED.call_once(|| {
-        let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
+        let workers = worker_count();
         let started = (0..workers)
             .filter(|i| {
                 std::thread::Builder::new()
