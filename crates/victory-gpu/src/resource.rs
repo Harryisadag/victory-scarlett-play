@@ -1909,9 +1909,12 @@ pub(crate) fn room(memory: Option<[u64; 4]>) -> bool {
 /// their room kept, the queue stops that much earlier while the world
 /// loads and gets it back as the targets are made.
 ///
-/// Once the world's targets are made (half of the reserve or more) and
+/// Once the world's targets are made (40 % of the reserve or more) and
 /// have not grown by 64 MiB for `VICTORY_CARD_ROOM_FOR_TARGETS_SETTLE_MS`
-/// (20,000; 0: kept for the run, as before), nothing is kept: at 1440p the
+/// (20,000; 0: kept for the run, as before), nothing is kept. A 16-GiB
+/// host running GTA at 1080-to-1440p measured about 1.35 GiB of targets;
+/// the old 50 % threshold kept roughly 1.7 GiB idle for the rest of the run.
+/// At 1440p in heavier titles the
 /// targets level off at 2.1-2.9 GB, and the rest of the 3,072 MB (990 MB
 /// at the first world frame, 160-640 MB in play) stayed reserved for
 /// targets that never came while thousands of textures waited for room
@@ -1965,11 +1968,13 @@ fn targets_seen(last: u64, since: u64, targets: u64, now: u64) -> (u64, u64) {
 }
 
 /// What [`targets_room_kept`] keeps of `most`: what the targets do not
-/// hold yet, or nothing once they hold half of it or more and have not
-/// grown for `settle` ms (`still_ms`; `settle` 0: always kept).
+/// hold yet, or nothing once they hold 40 % of it or more and have not
+/// grown for `settle` ms (`still_ms`; `settle` 0: always kept). The lower
+/// threshold lets smaller 1080-to-1440p scenes release an unused reserve;
+/// a later 64-MiB target growth starts reserving again.
 #[cfg(any(windows, test))]
 fn targets_kept(most: u64, targets: u64, still_ms: u64, settle: u64) -> u64 {
-    if settle > 0 && targets >= most / 2 && still_ms >= settle {
+    if settle > 0 && u128::from(targets) * 5 >= u128::from(most) * 2 && still_ms >= settle {
         0
     } else {
         most.saturating_sub(targets)
@@ -4900,8 +4905,12 @@ float4 lit() : SV_Target { return 1.0; }
         assert_eq!(targets_kept(most, 652 * MIB, 60_000, 20_000), 2420 * MIB);
         // The world's first frames: still growing.
         assert_eq!(targets_kept(most, 2083 * MIB, 5_000, 20_000), 989 * MIB);
-        // Settled: nothing kept.
+        // Settled: nothing kept, including a smaller 1080-to-1440p scene
+        // like the measured GTA run (about 1.35 GiB of targets).
         assert_eq!(targets_kept(most, 2432 * MIB, 20_000, 20_000), 0);
+        assert_eq!(targets_kept(most, 1347 * MIB, 20_000, 20_000), 0);
+        // Below 40 % the initial reserve remains intact.
+        assert_eq!(targets_kept(most, 1200 * MIB, 20_000, 20_000), 1872 * MIB);
         // `VICTORY_CARD_ROOM_FOR_TARGETS_SETTLE_MS=0`: kept as before.
         assert_eq!(targets_kept(most, 2432 * MIB, 600_000, 0), 640 * MIB);
 
