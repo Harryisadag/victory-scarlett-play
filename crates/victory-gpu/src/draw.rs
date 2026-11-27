@@ -3901,7 +3901,10 @@ impl State {
         // depth read is the opaque one behind them; outdoors on water that is
         // the bottom, the reflected direction is wrong and the estimate dark
         // (play session 2026-11-27: dark patches on the water around a boat).
-        let alpha_too = std::env::var("VICTORY_AMBIENT_SPECULAR_ALPHA").is_ok_and(|v| v.trim() == "1");
+        // With `VICTORY_REFLECT_BOUND` the alpha layer is held to the room's light as well: it is no estimate
+        // along a direction, only a bound.
+        let alpha_too = crate::ambient::reflect_bound() > 0.0
+            || std::env::var("VICTORY_AMBIENT_SPECULAR_ALPHA").is_ok_and(|v| v.trim() == "1");
         if role == Role::Miss
             && !(layer == crate::ambient::MISS_OPAQUE || (alpha_too && layer == crate::ambient::MISS_ALPHA))
         {
@@ -4058,7 +4061,10 @@ impl State {
                 // same reversed depth is what the switch is for. Off by default.
                 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R32_FLOAT;
                 static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-                if !*ON.get_or_init(|| std::env::var("VICTORY_AMBIENT_SPECULAR_HALF_DEPTH").is_ok_and(|v| v.trim() == "1")) {
+                if !*ON.get_or_init(|| {
+                    crate::ambient::reflect_bound() > 0.0
+                        || std::env::var("VICTORY_AMBIENT_SPECULAR_HALF_DEPTH").is_ok_and(|v| v.trim() == "1")
+                }) {
                     return None;
                 }
                 let half = image.as_ref().map(|(d, _)| (d.Width, d.Height));

@@ -45,6 +45,12 @@
 //! right after that program, the same estimate taken along the reflected
 //! direction ([`Role::Miss`]); the screen-space resolve that comes next
 //! still writes what it found over it.
+//!
+//! `VICTORY_REFLECT_BOUND=<multiple>` (after kyokyotosh/VIctory-6700XT a5effecc) does less: what `CS_RayMiss` left
+//! is held to that multiple of the light gathered around each point, and over it the room's light at that
+//! multiple takes its place: a ray that left the screen indoors would have found the room, not the sky (floors
+//! indoors mirrored a blue-white sky, and the denoiser made it a frosted, speckled floor). It takes the place of
+//! the estimate for the miss program, for opaque and alpha surfaces both; water's are left as they are.
 
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
@@ -135,7 +141,17 @@ fn set() -> Set {
 /// Whether a stand-in is on (for the diffuse light or for reflections):
 /// set, and the title's rays find nothing.
 pub(crate) fn on() -> bool {
-    (set() != Set::Off || specular().is_some()) && !crate::pipeline::builder_runs()
+    (set() != Set::Off || specular().is_some() || reflect_bound() > 0.0) && !crate::pipeline::builder_runs()
+}
+
+/// `VICTORY_REFLECT_BOUND=<multiple>`: the most a reflection whose ray found nothing holds, as a multiple of the
+/// light gathered around its point (kyokyotosh a5effecc used 1). Unset or 0: off.
+pub(crate) fn reflect_bound() -> f32 {
+    static SET: OnceLock<f32> = OnceLock::new();
+    *SET.get_or_init(|| {
+        let set = std::env::var("VICTORY_REFLECT_BOUND").unwrap_or_default();
+        set.trim().parse().ok().filter(|v: &f32| v.is_finite() && *v > 0.0).unwrap_or(0.0)
+    })
 }
 
 /// `VICTORY_AMBIENT_SPECULAR=<share>[,<sky>]`: reflections whose rays found
@@ -388,6 +404,26 @@ void reflect_light(uint3 at : SV_DispatchThreadID) {
 }
 #endif
 
+#ifdef BOUND
+RWTexture2D<float3> mirrored : register(u0);
+// No brighter than `most` times the light gathered around the point the
+// reflection is of; over it, that light at that multiple (kyokyotosh a5effecc).
+[RootSignature(RS)]
+[numthreads(8, 8, 1)]
+void bound_reflection(uint3 at : SV_DispatchThreadID) {
+    uint w, h;
+    mirrored.GetDimensions(w, h);
+    if (at.x >= w || at.y >= h) return;
+    uint2 q = min(uint2((float2(at.xy) + 0.5) / float2(w, h) * float2(PX, PY)), uint2(PX - 1, PY - 1));
+    uint at0 = (q.y * PX + q.x) * 3;
+    float3 around = max(float3(points[at0].w, points[at0 + 1].w, points[at0 + 2].w), 0.0);
+    around = any(isnan(around)) || any(isinf(around)) ? 0.0 : around;
+    float3 c = mirrored[at.xy];
+    bool bad = any(isnan(c)) || any(isinf(c));
+    if (bad || dot(c, LUMA) > dot(around, LUMA) * most) mirrored[at.xy] = around * most;
+}
+#endif
+
 #ifdef RAISE
 RWTexture2D<uint> light : register(u0);
 float3 unpack(uint v) {
@@ -506,6 +542,7 @@ struct Pass {
     raise: ID3D12PipelineState,
     air: ID3D12PipelineState,
     reflect: ID3D12PipelineState,
+    bound: ID3D12PipelineState,
     cells: ID3D12Resource,
     points: ID3D12Resource,
 }
@@ -538,6 +575,7 @@ fn make(device: &ID3D12Device, buffer: impl Fn(u64) -> Option<ID3D12Resource>) -
     let raise = pipeline("RAISE", s!("raise"))?;
     let air = pipeline("AIR", s!("clear_air"))?;
     let reflect = pipeline("REFLECT", s!("reflect_light"))?;
+    let bound = pipeline("BOUND", s!("bound_reflection"))?;
     let made = |bytes| buffer(bytes).ok_or_else(windows::core::Error::empty);
     Ok(Pass {
         root: root.ok_or_else(windows::core::Error::empty)?,
@@ -548,6 +586,7 @@ fn make(device: &ID3D12Device, buffer: impl Fn(u64) -> Option<ID3D12Resource>) -
         raise,
         air,
         reflect,
+        bound,
         cells: made(CELL_BYTES)?,
         points: made(POINT_BYTES)?,
     })
@@ -685,6 +724,8 @@ pub(crate) fn after(list: &HostList, role: Role, views: &Views) -> bool {
     // The share of the estimate, and the constant (for reflections: the
     // share of the title's sky kept); the keep runs for either stand-in.
     let (level, constant) = match (role, set(), specular()) {
+        (Role::Miss, _, _) if reflect_bound() > 0.0 => (0.0, 0.0),
+        (Role::Radiance, Set::Off, None) if reflect_bound() > 0.0 => (0.0, 0.0),
         (Role::Miss, _, Some(s)) => (s.share, s.sky),
         (Role::Miss, _, None) => return false,
         (Role::Radiance, Set::Off, Some(_)) => (0.0, 0.0),
@@ -721,7 +762,7 @@ pub(crate) fn after(list: &HostList, role: Role, views: &Views) -> bool {
     words[6] = views.depth_size[0];
     words[7] = views.depth_size[1];
     words[8] = 0.04f32.to_bits();
-    words[9] = 4.0f32.to_bits();
+    words[9] = if role == Role::Miss && reflect_bound() > 0.0 { reflect_bound() } else { 4.0 }.to_bits();
     words[10] = air().to_bits();
     words[11] = if once() { 1.0f32 } else { 0.0 }.to_bits();
     let l = &list.list;
@@ -760,7 +801,11 @@ pub(crate) fn after(list: &HostList, role: Role, views: &Views) -> bool {
                 // stand-in makes them later in the frame.
                 run(&pass.place, 8, 9, 1);
                 run(&pass.gather, 20, 45, 1);
-                run(&pass.reflect, views.size[0].div_ceil(8), views.size[1].div_ceil(8), 1);
+                if reflect_bound() > 0.0 {
+                    run(&pass.bound, views.size[0].div_ceil(8), views.size[1].div_ceil(8), 1);
+                } else {
+                    run(&pass.reflect, views.size[0].div_ceil(8), views.size[1].div_ceil(8), 1);
+                }
             }
         }
     }
