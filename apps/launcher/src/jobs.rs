@@ -123,11 +123,20 @@ fn warm(exe: &Path, cfg: &Config, hw: &Hardware, s: &Arc<Mutex<Status>>, cancel:
             return Ok(());
         }
         let last = watch.lock().unwrap().tail.back().cloned().unwrap_or_default();
+        // `victory warm` says "<done> of <total>, <seconds> s".
+        let words: Vec<&str> = last.split_whitespace().collect();
+        let fraction = match words.as_slice() {
+            [done, "of", total, ..] => match (done.parse::<f32>(), total.trim_end_matches(',').parse::<f32>()) {
+                (Ok(d), Ok(t)) if t > 0.0 => (d / t).min(1.0),
+                _ => -1.0,
+            },
+            _ => -1.0,
+        };
         say(
             s,
             "Compiling the recorded graphics pipelines ahead",
             &format!("{} s - {}", started.elapsed().as_secs(), last.chars().take(140).collect::<String>()),
-            -1.0,
+            fraction,
         );
         std::thread::sleep(Duration::from_millis(500));
     }
