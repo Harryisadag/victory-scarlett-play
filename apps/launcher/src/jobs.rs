@@ -146,8 +146,27 @@ fn warm(exe: &Path, cfg: &Config, hw: &Hardware, s: &Arc<Mutex<Status>>, cancel:
 
 /// Whether an earlier setup already recorded the opening's pipelines (they stay valid across builds and settings: an
 /// update only needs the shaders translated again and the recorded pipelines compiled).
-pub fn recorded() -> bool {
-    config::cache_dir().join("pipelines").join("known-pipelines.bin").is_file()
+pub fn recorded(cfg: &Config) -> bool {
+    let pipelines = config::cache_dir().join("pipelines");
+    if !pipelines.join("known-pipelines.bin").is_file() {
+        return false;
+    }
+    // Ray tracing uses programs of its own: a recording made without it does not cover them. The marker names the
+    // lighting each recording was made with; a recording from before markers counts for the non-ray-traced modes.
+    let marker = pipelines.join(recorded_marker(cfg));
+    marker.is_file() || (cfg.lighting != crate::config::Lighting::RayTraced && !pipelines.join(recorded_marker_rt()).is_file() && !any_marker(&pipelines))
+}
+
+fn recorded_marker(cfg: &Config) -> &'static str {
+    if cfg.lighting == crate::config::Lighting::RayTraced { recorded_marker_rt() } else { "recorded-raster.txt" }
+}
+
+fn recorded_marker_rt() -> &'static str {
+    "recorded-raytraced.txt"
+}
+
+fn any_marker(dir: &Path) -> bool {
+    dir.join("recorded-raster.txt").is_file() || dir.join(recorded_marker_rt()).is_file()
 }
 
 /// Plays the opening unattended from a fresh start, so every pipeline it uses is recorded, then stops it.
@@ -213,6 +232,8 @@ pub fn setup(exe: PathBuf, cfg: Config, hw: Hardware, record: bool) -> Job {
         translate(&exe, &cfg, &hw, s, cancel)?;
         if record {
             record_opening(&exe, &cfg, &hw, s, cancel)?;
+            let _ = std::fs::write(config::cache_dir().join("pipelines").join(recorded_marker(&cfg)), "recorded
+");
         }
         warm(&exe, &cfg, &hw, s, cancel)?;
         say(s, "Setup finished", "", 1.0);

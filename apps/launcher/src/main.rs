@@ -124,12 +124,13 @@ impl App {
             hw: Hardware::detect(),
             exe: game::victory_exe(),
             job: None,
-            record_opening: !jobs::recorded(),
+            record_opening: true,
             note: None,
             update: UpdateState::Idle,
             reporting: None,
             cfg,
         };
+        app.record_opening = !jobs::recorded(&app.cfg);
         if app.cfg.check_updates {
             app.start_update_check();
         }
@@ -446,11 +447,13 @@ impl eframe::App for App {
                 let ready = self.cfg.game_dir.is_some() && self.exe.is_some() && !self.blocking();
                 let setup_done = self.setup_done();
                 if !setup_done {
-                    if jobs::recorded() {
+                    if jobs::recorded(&self.cfg) {
                         ui.label("New build or settings: the game's shaders are translated again and the recorded graphics compiled ahead. About 6 minutes. (Play does this by itself too.)");
                         ui.checkbox(&mut self.record_opening, "Also record the opening again (not needed after an update; about 9 minutes more)");
                     } else {
-                        ui.label("First-run setup has not been done yet. It translates the game's shaders, plays the opening by itself in a black window to record the graphics it needs (nothing is shown, so the story isn't spoiled - don't touch it), and compiles them ahead, so faces, skin and the first scenes come out right when you play. About 15 minutes, once.");
+                        // No recording for this lighting yet (first run, or ray tracing switched on): record it.
+                        self.record_opening = true;
+                        ui.label("First-run setup has not been done yet for this lighting. It translates the game's shaders, plays the opening by itself in a black window to record the graphics it needs (nothing is shown, so the story isn't spoiled - don't touch it), and compiles them ahead, so faces, skin and the first scenes come out right when you play. About 15 minutes, once.");
                         ui.checkbox(&mut self.record_opening, "Include the opening recording (recommended; uses a separate, temporary save)");
                     }
                 }
@@ -482,7 +485,7 @@ impl eframe::App for App {
                     let r = ui.add_enabled(can, play);
                     let r = if setup_done {
                         r
-                    } else if jobs::recorded() {
+                    } else if jobs::recorded(&self.cfg) {
                         r.on_hover_text("New build or settings: Play first brings the shaders and recorded graphics up to date (a few minutes), then starts the game")
                     } else {
                         r.on_hover_text("Setup not done: the first session will have missing faces and pop-in (run the first-run setup first)")

@@ -47,7 +47,7 @@ impl Default for Config {
         Self {
             game_dir: None,
             preset: None,
-            lighting: Lighting::Fast,
+            lighting: Lighting::RayTraced,
             console: None,
             hooks: true,
             cut_hold: true,

@@ -152,7 +152,8 @@ pub fn environment(cfg: &Config, hw: &Hardware) -> (Vec<(String, String)>, &'sta
         }
     }
     if cfg.cut_hold {
-        set("VICTORY_CUT_HOLD", "1");
+        // The title itself waits at a scene change until its reads and pipelines are there (at most 3 s).
+        set("VICTORY_CUT_HOLD", "wait");
     }
     if cfg.hooks {
         set("VICTORY_GPU_ONLY", "1");
