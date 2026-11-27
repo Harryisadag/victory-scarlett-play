@@ -117,6 +117,11 @@ const BASE: &[(&str, &str)] = &[
     // megafork 382c129d: the title's watchdog ends the process on purpose when its main thread stalls ~30 s (a long
     // pipeline compile, the scene-change wait, a slow load); patched out (only where the exact bytes of v1.0.2.1 match).
     ("VICTORY_NO_WATCHDOG", "1"),
+    // One storage worker per physical core instead of per logical processor (16 on a Ryzen 7 3700X): SMT twins add
+    // little to reading and unpacking and crowd the submitting thread and the copies, the limit on such CPUs (the
+    // switch's author on an 8c/16t PC: copying back 2.4-3.5 ms/MB with 8 against 5.7 with 16; a session here spent
+    // 25-34 ms a cutscene frame copying back).
+    ("VICTORY_DSTORAGE_WORKERS", "physical"),
 ];
 
 /// Everything that changes the shader translation (a change needs the shaders translated again).
