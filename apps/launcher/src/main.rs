@@ -616,7 +616,7 @@ impl eframe::App for App {
                     }
                 }
                 if self.cfg.engine == Engine::NvidiaRt && self.job.is_none() {
-                    ui.checkbox(&mut self.rt_preload, "Build all shaders first, this time (once: a long wait, then no stutter from new shaders)")
+                    ui.checkbox(&mut self.rt_preload, "Build all shaders first, this time (once: 5-45 min - the more you have played, the longer - then no stutter from new shaders; the launcher shows the time left)")
                         .on_hover_text("Not needed: without it the game builds them as it goes, so the first sessions stutter. Run it again after an update of this launcher or a new graphics driver. Stopped, it goes on where it was next time.");
                 }
                 if self.job.is_none() {

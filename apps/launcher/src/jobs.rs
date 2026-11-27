@@ -375,6 +375,14 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
                 }
             }
             let last = watch.lock().unwrap().samples.last().copied();
+            // A preload under way (before the first frame): its step, how far, and the time left.
+            if last.is_none()
+                && let Some((step, fraction, detail)) = preload_progress(&watch.lock().unwrap().tail)
+            {
+                say(s, step, &detail, fraction);
+                std::thread::sleep(Duration::from_millis(1000));
+                continue;
+            }
             say(
                 s,
                 "Playing",
@@ -467,4 +475,72 @@ pub fn get_dlss(exe: PathBuf) -> Job {
             Err(format!("the DLSS files did not arrive; see {}", config::logs_dir().join("get-dlss.log").display()))
         }
     })
+}
+
+/// Shader programs a preload translates (`victory preload`'s first step; 26,084 in v1.0.2.1).
+const PRELOAD_SHADERS: f64 = 26_084.0;
+
+/// Where a preload (`victory play --preload`) is, from its last lines: its first step says
+/// "<n> shaders in the cache, <s> s", its second "<done> of <total>, <s> s" (pipelines). The step's name, its
+/// fraction done, and the detail with the time left (from the step's own pace so far).
+fn preload_progress(tail: &std::collections::VecDeque<String>) -> Option<(&'static str, f32, String)> {
+    let minutes = |secs: f64| {
+        if secs < 90.0 { "under 2 min left".to_owned() } else { format!("about {:.0} min left", (secs / 60.0).round()) }
+    };
+    for line in tail.iter().rev().take(40) {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        match words.as_slice() {
+            [done, "of", total, secs, "s", ..] => {
+                let (Ok(done), Ok(total), Ok(secs)) =
+                    (done.parse::<f64>(), total.trim_end_matches(',').parse::<f64>(), secs.parse::<f64>())
+                else {
+                    continue;
+                };
+                if total <= 0.0 {
+                    continue;
+                }
+                let rate = if secs > 0.0 { done / secs } else { 0.0 };
+                let left = if rate > 0.0 { minutes((total - done) / rate) } else { "working out the time left".to_owned() };
+                return Some((
+                    "Building shaders ahead (step 2 of 2: pipelines)",
+                    (done / total).min(1.0) as f32,
+                    format!("{:.0} of {:.0} · {left} · then the game starts", done, total),
+                ));
+            }
+            [n, "shaders", "in", "the", "cache,", ..] => {
+                let Ok(n) = n.parse::<f64>() else { continue };
+                return Some((
+                    "Building shaders ahead (step 1 of 2: translating)",
+                    (n / PRELOAD_SHADERS).min(1.0) as f32,
+                    format!("{:.0} of about {:.0} shaders · a minute or two, then the pipelines", n, PRELOAD_SHADERS),
+                ));
+            }
+            _ if line.contains("Preloading shaders") => {
+                return Some(("Building shaders ahead", -1.0, "starting".to_owned()));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod preload_tests {
+    #[test]
+    fn a_preload_says_its_step_and_time_left() {
+        let tail: std::collections::VecDeque<String> =
+            ["Preloading shaders: every shader of the title is translated", "26000 shaders in the cache, 66 s", "19000 of 88657, 537 s"]
+                .into_iter()
+                .map(String::from)
+                .collect();
+        let (step, fraction, detail) = super::preload_progress(&tail).unwrap();
+        assert!(step.contains("step 2 of 2"));
+        assert!((fraction - 19000.0 / 88657.0).abs() < 1e-4);
+        // 69,657 left at 35.4 a second: about 33 min.
+        assert!(detail.starts_with("19000 of 88657 · about 33 min left"), "{detail}");
+        let first: std::collections::VecDeque<String> = ["7000 shaders in the cache, 57 s".to_owned()].into_iter().collect();
+        assert!(super::preload_progress(&first).unwrap().0.contains("step 1 of 2"));
+        let none: std::collections::VecDeque<String> = ["INFO victory_gpu::host: host D3D12 device ready".to_owned()].into_iter().collect();
+        assert!(super::preload_progress(&none).is_none());
+    }
 }
