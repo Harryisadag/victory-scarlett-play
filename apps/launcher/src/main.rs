@@ -159,6 +159,11 @@ impl App {
             save_note: None,
             cfg,
         };
+        // DLSS, Reflex and NVIDIA-RT's frame pipeline are NVIDIA's: an AMD card starts on Scarlett (its AMD preset).
+        if first_start && app.hw.vendor == hardware::Vendor::Amd {
+            app.cfg.engine = Engine::Scarlett;
+            app.cfg.save();
+        }
         if first_start && app.hw.vram_gb > 0.0 && app.hw.vram_gb < 10.0 {
             rt::fit_low_vram(&mut app.cfg.rt);
             app.cfg.save();
@@ -451,19 +456,19 @@ impl eframe::App for App {
                     let mut changed = false;
                     ui.horizontal(|ui| {
                         ui.label("Game layer:");
-                        changed |= ui
-                            .radio_value(&mut self.cfg.engine, Engine::Scarlett, "Scarlett")
-                            .on_hover_text("Op-lite/victory-scarlett with this project's fixes: the first-run setup records the opening so faces and scenes come out right; mouse & keyboard in a GTA PC layout")
-                            .changed();
                         let rt_there = self.rt_exe.is_some();
                         let r = ui
-                            .add_enabled(rt_there, egui::RadioButton::new(self.cfg.engine == Engine::NvidiaRt, "NVIDIA-RT (Kemerd test 9)"))
+                            .add_enabled(rt_there, egui::RadioButton::new(self.cfg.engine == Engine::NvidiaRt, "NVIDIA-RT (recommended)"))
                             .on_hover_text("Kemerd/VIctory-NVIDIA-RT: a faster frame pipeline (11.8 -> 21.9 fps median on its author's RTX 5090), DLSS, frame generation up to 6x, Reflex, HDR10, 21:9 and 32:9. F1 in the game is its settings menu, F3 its stats. No setup: the first session translates as it goes.")
                             .on_disabled_hover_text("victory-rt\\victory.exe is not in this folder");
                         if r.clicked() && self.cfg.engine != Engine::NvidiaRt {
                             self.cfg.engine = Engine::NvidiaRt;
                             changed = true;
                         }
+                        changed |= ui
+                            .radio_value(&mut self.cfg.engine, Engine::Scarlett, "Scarlett")
+                            .on_hover_text("Op-lite/victory-scarlett with this project's fixes: the first-run setup records the opening so faces and scenes come out right; mouse & keyboard in a GTA PC layout. Slower on NVIDIA cards; the one for AMD cards")
+                            .changed();
                     });
                     let scarlett = self.cfg.engine == Engine::Scarlett;
                     if !scarlett {

@@ -62,9 +62,12 @@ victory-scarlett-play $version
 
 1. Unzip this folder anywhere (not inside your game folder).
 2. Run Launcher.exe and pick the folder of your own game dump (the one with game_scarlett_master.exe).
-3. Pick a game layer: Scarlett (run its first-run setup once, about 15 minutes) or NVIDIA-RT (DLSS, frame
-   generation, Reflex, HDR10, ultrawide; no setup; it offers to fetch NVIDIA's DLSS files from NVIDIA once).
-4. Press Play.
+3. The game layer is NVIDIA-RT (DLSS, frame generation, Reflex, HDR10, ultrawide; no setup). Let it fetch
+   NVIDIA's DLSS files from NVIDIA once. Optional: tick "Build all shaders first" for the first Play - one
+   long wait, then no black or missing graphics while the shaders are built (else the first 10-15 minutes
+   in game look unfinished; the SHADERS number at the top counts down to 0).
+   On an AMD card the launcher picks Scarlett instead (run its first-run setup once, about 15 minutes).
+4. Press Play, then A / Enter on the start screen.
 
 No game files are included. Source code (GPL-3.0-or-later): https://github.com/Harryisadag/victory-scarlett-play
 "@ | Set-Content -Encoding utf8 (Join-Path $stage 'README.txt')

@@ -126,7 +126,9 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             game_dir: None,
-            engine: Engine::Scarlett,
+            // NVIDIA-RT first: on the player's RTX 5070 Ti it ran 1.5-2x Scarlett's frame rate at the same draws
+            // (2026-11-27). An AMD card is given Scarlett on a first start (main.rs).
+            engine: Engine::NvidiaRt,
             rt: RtSettings::default(),
             minimize_while_playing: true,
             preset: None,
