@@ -1660,16 +1660,70 @@ impl Staging {
             if !exact && last.asked != 0 && written.iter().all(|&(_, w)| w <= last.asked) {
                 return 0;
             }
+            let previous = last.asked;
             last.asked = now;
-            // Read through the copy, which stands unmapped pages: memory of
-            // big pools is too slow to ask page by page.
-            with_read(size, |read| {
-                crate::host::copy_mapped(read.as_mut_ptr(), self.memory, size, false);
-                self.detile(read);
-            });
+            // Write-watch reports 64-KiB console pages. Map those pages back
+            // to the texture's tiled mip/slice spans, then read and detile
+            // only the affected subresources. Keep the original full refresh
+            // for the first fill and levels-on-demand textures, whose held
+            // level judgement can change independently of title writes.
+            let read_bytes = if previous != 0 && !self.on_demand {
+                let selected = self.dirty_parts(&written, previous);
+                if selected.iter().any(|&dirty| dirty) {
+                    with_read(size, |read| {
+                        read.fill(0);
+                        let mut spans = Vec::new();
+                        for (i, &dirty) in selected.iter().enumerate() {
+                            if dirty {
+                                let (mip, slice) = self.part(i);
+                                if let Some(span) = self.source_span(mip, slice) {
+                                    spans.push(span);
+                                }
+                            }
+                        }
+                        spans.sort_unstable();
+                        let mut merged: Vec<(usize, usize)> = Vec::with_capacity(spans.len());
+                        for (from, to) in spans {
+                            if let Some(last) = merged.last_mut()
+                                && from <= last.1
+                            {
+                                last.1 = last.1.max(to);
+                            } else {
+                                merged.push((from, to));
+                            }
+                        }
+                        let mut bytes = 0usize;
+                        for (from, to) in merged {
+                            let len = to.saturating_sub(from);
+                            if len == 0 { continue; }
+                            // SAFETY: both ranges are bounded by the layout's
+                            // source allocation and the full-size scratch.
+                            unsafe {
+                                crate::host::copy_mapped(
+                                    read.as_mut_ptr().add(from),
+                                    self.memory.add(from),
+                                    len,
+                                    false,
+                                );
+                            }
+                            bytes = bytes.saturating_add(len);
+                        }
+                        self.detile_parts(read, Some(&selected));
+                        bytes
+                    })
+                } else {
+                    0
+                }
+            } else {
+                with_read(size, |read| {
+                    crate::host::copy_mapped(read.as_mut_ptr(), self.memory, size, false);
+                    self.detile(read);
+                });
+                size
+            };
             #[cfg(feature = "diagnostics")]
-            crate::copystat::add(crate::copystat::C::TexWatched, size as u64);
-            return size;
+            crate::copystat::add(crate::copystat::C::TexWatched, read_bytes as u64);
+            return read_bytes;
         }
         // View memory has no write-watch, and a texture there was hashed
         // whole at every check: 229 MB and 51 ms a frame in a gameplay view
@@ -1946,8 +2000,51 @@ impl Staging {
         size
     }
 
+    /// Source byte span occupied by one mip in one array/depth slice.
+    /// Tail mips share the same aligned tail block and are therefore treated
+    /// as one source span for dirty-page tracking.
+    fn source_span(&self, mip: u32, slice: u32) -> Option<(usize, usize)> {
+        let layout = &self.layout;
+        let base = usize::try_from(u64::from(slice).checked_mul(layout.slice_size)?).ok()?;
+        let (from, to) = if mip >= layout.first_tail_mip {
+            (0, layout.alignment.min(layout.slice_size))
+        } else {
+            let current = layout.mips.get(mip as usize)?.offset;
+            let next = layout.mips.iter().take(layout.first_tail_mip as usize)
+                .map(|m| m.offset).filter(|&offset| offset > current)
+                .min().unwrap_or(layout.slice_size);
+            (current, next)
+        };
+        let start = base.checked_add(usize::try_from(from).ok()?)?;
+        let end = base.checked_add(usize::try_from(to).ok()?)?;
+        (start < end && end <= self.read).then_some((start, end))
+    }
+
+    /// Subresources intersecting pages written since the previous asking.
+    /// Page numbers come from the write-watch journal, not byte addresses.
+    fn dirty_parts(&self, written: &[(usize, u64)], after: u64) -> Vec<bool> {
+        let pages: Vec<(usize, usize)> = written.iter()
+            .filter(|&&(_, asking)| asking > after)
+            .map(|&(page, _)| {
+                let start = page.saturating_mul(crate::watch::PAGE);
+                (start, start.saturating_add(crate::watch::PAGE))
+            }).collect();
+        (0..self.footprints.len()).map(|i| {
+            let (mip, slice) = self.part(i);
+            self.source_span(mip, slice).is_some_and(|(from, to)| {
+                pages.iter().any(|&(page_from, page_to)| page_from < to && from < page_to)
+            })
+        }).collect()
+    }
+
     /// Detiles `tiled` (the texture's memory) into the staging buffer.
     fn detile(&self, tiled: &[u8]) {
+        self.detile_parts(tiled, None);
+    }
+
+    /// Detiles only selected subresources; untouched staging bytes remain
+    /// intact and are not copied to the host texture.
+    fn detile_parts(&self, tiled: &[u8], selected: Option<&[bool]>) {
         self.dirty.store(true, std::sync::atomic::Ordering::Relaxed);
         // Levels on demand: which levels are the title's is judged here,
         // once, for what the staging buffer holds from now on. The step
@@ -1975,6 +2072,9 @@ impl Staging {
         let unzeroed = self.unzeroed.load(std::sync::atomic::Ordering::Relaxed);
         let mut failed = false;
         for (i, (footprint, &rows)) in self.footprints.iter().zip(&self.rows).enumerate() {
+            if selected.is_some_and(|parts| !parts.get(i).copied().unwrap_or(false)) {
+                continue;
+            }
             let (mip, slice) = self.part(i);
             let f = footprint.Footprint;
             let pitch = f.RowPitch as usize;
