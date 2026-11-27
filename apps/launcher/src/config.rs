@@ -27,8 +27,7 @@ pub enum Engine {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RtSettings {
-    /// `1440`, `1080to1440`, `4k`, `wide` (5120x1440), or `3440x1440` (21:9, `--res 1440` with
-    /// `VICTORY_DISPLAY_WIDE`).
+    /// `1440`, `1080to1440`, `4k`, `wide` (5120x1440), or `3440x1440` (21:9, `--res ultrawide`).
     pub res: String,
     pub windowed: bool,
     /// `off`, `dlaa`, `quality`, `balanced`, `performance`.

@@ -103,6 +103,8 @@ pub fn args(rt: &RtSettings, series_s: bool) -> Vec<String> {
     };
     let (res, wide) = match rt.res.as_str() {
         "1080to1440" | "4k" | "wide" | "1440" => (rt.res.as_str(), None),
+        // Kemerd 65e88194: 21:9 is a picture size of its own.
+        "3440x1440" => ("ultrawide", None),
         other if other.contains('x') => ("1440", Some(other.to_owned())),
         _ => ("1440", None),
     };
@@ -197,8 +199,7 @@ mod tests {
     fn ultrawide_and_framegen() {
         let rt = RtSettings { res: "3440x1440".into(), framegen: 4, reflex: "off".into(), fast: false, ..Default::default() };
         let a = args(&rt, true);
-        assert_eq!(&a[..2], ["--res", "1440"]);
-        assert!(a.contains(&"VICTORY_DISPLAY_WIDE=3440x1440".to_owned()));
+        assert_eq!(&a[..2], ["--res", "ultrawide"]);
         assert!(a.windows(2).any(|w| w == ["--framegen", "4"]));
         assert!(a.contains(&"--series-s".to_owned()));
         assert!(!a.iter().any(|x| x.starts_with("VICTORY_REFLEX") || x.starts_with("VICTORY_SEND_THREAD")));
