@@ -47,6 +47,9 @@ pub struct RtSettings {
     pub ray_tracing: bool,
     /// The Series S profile (1280x720 inside: faster, much softer); the layer's author: Series X is the one to use.
     pub series_s: bool,
+    /// Light with ray tracing off: `both` (Scarlett's probes, `VICTORY_PROBE_RAYS`, plus the layer's fill light),
+    /// `probes` (Scarlett's: probes only, fill light off), `fill` (the layer's own: fill light only).
+    pub light: String,
 }
 
 impl Default for RtSettings {
@@ -64,6 +67,7 @@ impl Default for RtSettings {
             fast: true,
             ray_tracing: false,
             series_s: false,
+            light: "both".into(),
         }
     }
 }

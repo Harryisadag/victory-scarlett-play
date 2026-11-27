@@ -759,6 +759,24 @@ fn ui_rt(ui: &mut egui::Ui, rt: &mut config::RtSettings, nvidia: bool, gpu: &str
             changed |= ui.radio_value(&mut rt.series_s, true, "Series S").on_hover_text("1280x720 inside: much softer; only for weaker cards").changed();
         });
         ui.end_row();
+        ui.label("Lighting");
+        ui.add_enabled_ui(!rt.ray_tracing, |ui| {
+            ui.horizontal(|ui| {
+                changed |= ui
+                    .radio_value(&mut rt.light, "both".to_owned(), "Probes + fill light")
+                    .on_hover_text("Scarlett's light probes (no violet vegetation, no stale light) plus this layer's fill light in the shadows")
+                    .changed();
+                changed |= ui
+                    .radio_value(&mut rt.light, "probes".to_owned(), "Probes (Scarlett)")
+                    .on_hover_text("As the Scarlett build lights it: the game's probes only; shadows darker")
+                    .changed();
+                changed |= ui
+                    .radio_value(&mut rt.light, "fill".to_owned(), "Fill light (original)")
+                    .on_hover_text("As VIctory-NVIDIA ships it: a stand-in fill light, the probes left out")
+                    .changed();
+            });
+        });
+        ui.end_row();
         ui.label("Speed");
         ui.horizontal(|ui| {
             changed |= ui.radio_value(&mut rt.fast, true, "Fast (recommended)").changed();

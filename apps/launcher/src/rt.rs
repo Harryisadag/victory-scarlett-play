@@ -122,6 +122,16 @@ pub fn args(rt: &RtSettings, series_s: bool, mouse: bool) -> Vec<String> {
     set("VICTORY_FULLSCREEN", if rt.windowed { "0" } else { "1" });
     if rt.ray_tracing {
         set("VICTORY_RT_NATIVE", "1");
+    } else {
+        // Scarlett's light probes (engine-rt 3c15c86b, from Op-lite/victory-scarlett 183ac80f): the probes trace
+        // against empty structures instead of keeping stale memory (violet vegetation, wrong indoor light).
+        if rt.light != "fill" {
+            set("VICTORY_PROBE_RAYS", "1");
+        }
+        // An empty value turns the layer's fill light off.
+        if rt.light == "probes" {
+            set("VICTORY_AMBIENT", "");
+        }
     }
     // The title reads the mouse device only while the pointer is captured (superboynick's capture, trustno1
     // 06afe633: off unless asked for); the toggle key is this repository's (engine-rt).
@@ -203,6 +213,11 @@ mod tests {
         assert!(a.contains(&"VICTORY_FULLSCREEN=0".to_owned()));
         assert!(a.contains(&"VICTORY_SEND_THREAD=1".to_owned()));
         assert!(!a.iter().any(|x| x == "--framegen" || x == "--no-framegen-ready" || x == "--series-s"));
+        assert!(a.contains(&"VICTORY_PROBE_RAYS=1".to_owned()) && !a.iter().any(|x| x.starts_with("VICTORY_AMBIENT")));
+        let fill = args(&RtSettings { light: "fill".into(), ..Default::default() }, false, false);
+        assert!(!fill.iter().any(|x| x.starts_with("VICTORY_PROBE_RAYS")));
+        let probes = args(&RtSettings { light: "probes".into(), ..Default::default() }, false, false);
+        assert!(probes.contains(&"VICTORY_AMBIENT=".to_owned()));
     }
 
     #[test]
