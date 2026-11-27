@@ -131,6 +131,7 @@ pub fn follow(child: &mut Child, log: PathBuf, watch: Arc<Mutex<Watch>>, progres
         let (file, watch, progress) = (file.clone(), watch.clone(), progress.clone());
         std::thread::spawn(move || {
             for line in BufReader::new(r).lines().map_while(Result::ok) {
+                let line = strip_ansi(&line);
                 if let Some(f) = file.lock().unwrap().as_mut() {
                     use std::io::Write;
                     let _ = writeln!(f, "{line}");
@@ -157,6 +158,24 @@ pub fn follow(child: &mut Child, log: PathBuf, watch: Arc<Mutex<Watch>>, progres
             }
         });
     }
+}
+
+/// The line without terminal colour codes (`ESC [ ... m`), which a layer may write even into a pipe.
+fn strip_ansi(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            for d in chars.by_ref() {
+                if d.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 pub fn spawn_logged(mut cmd: Command, log: PathBuf, watch: Arc<Mutex<Watch>>, progress: Option<Arc<Mutex<String>>>) -> std::io::Result<Child> {
@@ -285,6 +304,13 @@ mod tests {
         assert_eq!(s.fps, 9.9);
         assert_eq!(s.draws, 3647.0);
         assert!(parse_sample("INFO victory_gpu::host: preparing per frame, the submitting thread: 0.0 ms").is_none());
+    }
+
+    #[test]
+    fn colour_codes_do_not_hide_the_frame_line() {
+        let line = "\u{1b}[2m2026-11-27T16:37:31Z\u{1b}[0m \u{1b}[32m INFO\u{1b}[0m \u{1b}[2mvictory_gpu::host\u{1b}[0m\u{1b}[2m:\u{1b}[0m 21.3 fps, 47.0 ms/frame (38.0 preparing), 3900 draws/frame";
+        let s = parse_sample(&strip_ansi(line)).unwrap();
+        assert_eq!((s.fps, s.draws), (21.3, 3900.0));
     }
 
     #[test]

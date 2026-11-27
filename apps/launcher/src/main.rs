@@ -449,6 +449,10 @@ impl eframe::App for App {
                     let scarlett = self.cfg.engine == Engine::Scarlett;
                     if !scarlett {
                         changed |= ui_rt(ui, &mut self.cfg.rt, self.hw.vendor == hardware::Vendor::Nvidia, &self.hw.gpu);
+                        changed |= ui
+                            .checkbox(&mut self.cfg.kbm, "Mouse look (the pointer is locked in the game window - F2 or ~ frees it and locks it again)")
+                            .on_hover_text("The mouse moves the camera through the game's own mouse support. Keys can be changed in the F1 menu. Alt+Tab also frees the pointer.")
+                            .changed();
                     }
                     if scarlett {
                     changed |= ui

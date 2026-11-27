@@ -53,7 +53,8 @@ impl Default for RtSettings {
     fn default() -> Self {
         Self {
             res: "1440".into(),
-            windowed: false,
+            // In a window by default: borderless fullscreen covered the whole screen (player's report, 2026-11-27).
+            windowed: true,
             dlss: "quality".into(),
             framegen: 0,
             reflex: "boost".into(),
