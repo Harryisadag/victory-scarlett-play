@@ -114,6 +114,9 @@ const BASE: &[(&str, &str)] = &[
     ("VICTORY_SAMPLERS_MADE", "CompositeNMB"),
     ("VICTORY_TABLE_NAMED_ONLY", "1"),
     ("VICTORY_QUEUE_MARKS", "1"),
+    // megafork 382c129d: the title's watchdog ends the process on purpose when its main thread stalls ~30 s (a long
+    // pipeline compile, the scene-change wait, a slow load); patched out (only where the exact bytes of v1.0.2.1 match).
+    ("VICTORY_NO_WATCHDOG", "1"),
 ];
 
 /// Everything that changes the shader translation (a change needs the shaders translated again).
@@ -143,6 +146,9 @@ pub fn environment(cfg: &Config, hw: &Hardware) -> (Vec<(String, String)>, &'sta
             set("VICTORY_AMBIENT", "0.8");
         }
         Lighting::RayTraced => set("VICTORY_BVH_BUILDER", "1"),
+    }
+    if (cfg.render_scale - 1.0).abs() > 0.01 {
+        set("VICTORY_RENDER_SCALE", &format!("{:.2}", cfg.render_scale));
     }
     if cfg.kbm {
         set("VICTORY_KBM_GTA", "1");

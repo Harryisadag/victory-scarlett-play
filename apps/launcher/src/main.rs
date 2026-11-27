@@ -421,6 +421,12 @@ impl eframe::App for App {
                             });
                         }
                         ui.horizontal(|ui| {
+                            ui.label("Render scale:");
+                            changed |= ui.radio_value(&mut self.cfg.render_scale, 1.0, "Full").changed();
+                            changed |= ui.radio_value(&mut self.cfg.render_scale, 0.75, "75%").on_hover_text("Less work for the graphics card, a little softer").changed();
+                            changed |= ui.radio_value(&mut self.cfg.render_scale, 0.5, "50%").on_hover_text("Much less work for the graphics card, softer; helps weaker cards, not a slow CPU").changed();
+                        });
+                        ui.horizontal(|ui| {
                             ui.label("Console mode:");
                             let preset_console = current.console;
                             changed |= ui

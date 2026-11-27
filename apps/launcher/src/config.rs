@@ -24,6 +24,9 @@ pub struct Config {
     /// `Some("series-x")` / `Some("series-s")`: the console the game is told it runs on; `None`: the preset's.
     /// Series S renders at a lower resolution with smaller memory budgets (helps the graphics card, not the CPU).
     pub console: Option<String>,
+    /// The title's internal render scale: 1.0 (full), 0.75 or 0.5 (`VICTORY_RENDER_SCALE`; less work for the graphics
+    /// card, softer picture).
+    pub render_scale: f32,
     /// Scarlett's memory hooks (faster; a few small textures can show old contents for a moment).
     pub hooks: bool,
     /// Experimental: keep the last picture at a scene change while streaming catches up (`VICTORY_CUT_HOLD=1`).
@@ -49,6 +52,7 @@ impl Default for Config {
             preset: None,
             lighting: Lighting::Fast,
             console: None,
+            render_scale: 1.0,
             hooks: true,
             cut_hold: true,
             kbm: true,
