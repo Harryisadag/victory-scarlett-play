@@ -132,6 +132,11 @@ pub fn fit_low_vram(rt: &mut RtSettings) {
     }
 }
 
+/// List translation threads for this PC: a quarter of its logical processors, 2 to 8.
+pub fn thin_threads() -> usize {
+    (std::thread::available_parallelism().map_or(8, |n| n.get()) / 4).clamp(2, 8)
+}
+
 /// `mouse`: mouse look (the pointer captured in the window, F2 or ~ frees it). `cut_hold`: the title waits at a
 /// scene change until the scene has loaded (`VICTORY_CUT_HOLD=wait`, from the Scarlett build).
 pub fn args(rt: &RtSettings, series_s: bool, mouse: bool, cut_hold: bool) -> Vec<String> {
@@ -187,6 +192,11 @@ pub fn args(rt: &RtSettings, series_s: bool, mouse: bool, cut_hold: bool) -> Vec
     set("VICTORY_WARMUP_RESTART", "0");
     // The audio decoding thread first in line (engine-rt): sound broke up in heavy scenes on an 8-core PC.
     set("VICTORY_AUDIO_PRIORITY", "1");
+    // List translation on a quarter of the logical cores, 2 to 8 (kyokyotosh/VIctory-6700XT 6a772184: on an 8-core,
+    // 16-thread CPU the default 8 threads fought the title's own; 4.6-6.5 -> 12.9-13.3 fps median in a heavy street).
+    // Measured here (Ryzen 7 3700X + RTX 5070 Ti, the same free-roam save, 2026-11-27): 3,000-7,000 draws 14.5 ->
+    // 18.8 fps median, the frame's preparing 54 -> 31-38 ms, 7,000+ draws unchanged (10.8 / 10.5).
+    set("VICTORY_THIN_THREADS", &thin_threads().to_string());
     if rt.scarlett_fixes {
         set("VICTORY_PLANE_NOW", "1");
         set("VICTORY_DSTORAGE_WORKERS", "physical");
