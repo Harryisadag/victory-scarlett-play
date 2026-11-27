@@ -483,6 +483,16 @@ const PRELOAD_SHADERS: f64 = 26_084.0;
 /// Where a preload (`victory play --preload`) is, from its last lines: its first step says
 /// "<n> shaders in the cache, <s> s", its second "<done> of <total>, <s> s" (pipelines). The step's name, its
 /// fraction done, and the detail with the time left (from the step's own pace so far).
+/// A pipeline step line "<done> of <total>, <secs> s": its three numbers.
+fn progress_line(line: &str) -> Option<(f64, f64, f64)> {
+    match line.split_whitespace().collect::<Vec<_>>().as_slice() {
+        [done, "of", total, secs, "s", ..] => {
+            Some((done.parse().ok()?, total.trim_end_matches(',').parse().ok()?, secs.parse().ok()?))
+        }
+        _ => None,
+    }
+}
+
 fn preload_progress(tail: &std::collections::VecDeque<String>) -> Option<(&'static str, f32, String)> {
     let minutes = |secs: f64| {
         if secs < 90.0 { "under 2 min left".to_owned() } else { format!("about {:.0} min left", (secs / 60.0).round()) }
@@ -499,7 +509,15 @@ fn preload_progress(tail: &std::collections::VecDeque<String>) -> Option<(&'stat
                 if total <= 0.0 {
                     continue;
                 }
-                let rate = if secs > 0.0 { done / secs } else { 0.0 };
+                // The pace of the latest few thousand, not the average since the step began: its first thousand
+                // carries the start of every worker process and read far slower (a player's preload said 221 min
+                // after its first 1,000 of 88,782, where the later pace was 35 a second). Until a second line is
+                // there, no time is said.
+                let earlier = tail.iter().rev().filter_map(|l| progress_line(l)).find(|&(d, t, _)| t == total && d <= done - 2000.0);
+                let rate = match earlier {
+                    Some((d0, _, s0)) if secs > s0 => (done - d0) / (secs - s0),
+                    _ => 0.0,
+                };
                 let left = if rate > 0.0 { minutes((total - done) / rate) } else { "working out the time left".to_owned() };
                 return Some((
                     "Building shaders ahead (step 2 of 2: pipelines)",
@@ -529,15 +547,19 @@ mod preload_tests {
     #[test]
     fn a_preload_says_its_step_and_time_left() {
         let tail: std::collections::VecDeque<String> =
-            ["Preloading shaders: every shader of the title is translated", "26000 shaders in the cache, 66 s", "19000 of 88657, 537 s"]
+            ["Preloading shaders: every shader of the title is translated", "26000 shaders in the cache, 66 s", "1000 of 88657, 150 s", "17000 of 88657, 485 s", "19000 of 88657, 537 s"]
                 .into_iter()
                 .map(String::from)
                 .collect();
         let (step, fraction, detail) = super::preload_progress(&tail).unwrap();
         assert!(step.contains("step 2 of 2"));
         assert!((fraction - 19000.0 / 88657.0).abs() < 1e-4);
-        // 69,657 left at 35.4 a second: about 33 min.
-        assert!(detail.starts_with("19000 of 88657 · about 33 min left"), "{detail}");
+        // The pace of the last 2,000 (52 s): 38.5 a second; 69,657 left: about 30 min (the average since the
+        // start, slowed by the first 1,000, would say 33).
+        assert!(detail.starts_with("19000 of 88657 · about 30 min left"), "{detail}");
+        // One line only: no time yet (a first 1,000 of 88,782 in 150 s said 221 min).
+        let early: std::collections::VecDeque<String> = ["1000 of 88782, 150 s".to_owned()].into_iter().collect();
+        assert!(super::preload_progress(&early).unwrap().2.contains("working out the time left"));
         let first: std::collections::VecDeque<String> = ["7000 shaders in the cache, 57 s".to_owned()].into_iter().collect();
         assert!(super::preload_progress(&first).unwrap().0.contains("step 1 of 2"));
         let none: std::collections::VecDeque<String> = ["INFO victory_gpu::host: host D3D12 device ready".to_owned()].into_iter().collect();
