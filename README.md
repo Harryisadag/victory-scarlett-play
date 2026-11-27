@@ -39,12 +39,31 @@ Needs Windows 10/11 x64, a CPU with AVX2, a DirectX 12 GPU with shader model 6.6
 
 ## Build from source
 
-Install [Rust](https://rustup.rs) and the Visual Studio C++ build tools with a Windows SDK, then:
+Install [Git](https://git-scm.com/download/win), [Rust](https://rustup.rs) and the
+[Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) ("Desktop development with C++",
+which brings a Windows SDK), then in PowerShell:
 
 ```powershell
-cargo build --profile diag -p victory --features diagnostics --locked
-cargo build --release -p launcher --locked
+git clone https://github.com/Harryisadag/victory-scarlett-play
+cd victory-scarlett-play
+powershell -ExecutionPolicy Bypass -File scripts\make-release.ps1 -Relay ''
 ```
+
+That builds everything (the launcher, the Scarlett layer from this branch, the NVIDIA-RT layer from the `engine-rt`
+branch, which it checks out beside this folder as `..\vsp-engine-rt`) and leaves the ready folder in
+`dist\stage\victory-scarlett-play` and a zip of it in `dist`. The first build takes 10-20 minutes. `-Relay ''` leaves the
+session reports off; leave it out to send them to this project.
+
+Only one layer, by hand:
+
+```powershell
+cargo build --release -p launcher --locked                       # the launcher (this branch)
+cargo build --profile diag -p victory --features diagnostics --locked   # Scarlett (this branch)
+git worktree add ..\vsp-engine-rt engine-rt                        # NVIDIA-RT (its own branch and target folder)
+cd ..\vsp-engine-rt; $env:CARGO_TARGET_DIR = "$PWD\target"; cargo build --release -p victory --locked
+```
+
+The launcher looks for `victory\victory.exe` (Scarlett) and `victory-rt\victory.exe` (NVIDIA-RT) beside itself.
 
 `Play-Scarlett.cmd` (Scarlett's own launcher script) also still works.
 

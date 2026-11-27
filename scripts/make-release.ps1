@@ -45,8 +45,12 @@ if ($ok) { cargo build --release -p victory --locked; $ok = $LASTEXITCODE -eq 0 
 $env:CARGO_TARGET_DIR = $savedTarget
 Pop-Location
 if (-not $ok) { throw 'NVIDIA-RT build failed' }
-$stage = Join-Path $root 'dist\victory-scarlett-play'
-Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+# Staged apart from dist\victory-scarlett-play (a copy someone may be running), and made from nothing every time:
+# only the files below go into the zip.
+$stageRoot = Join-Path $root 'dist\stage'
+$stage = Join-Path $stageRoot 'victory-scarlett-play'
+Remove-Item -Recurse -Force $stageRoot -ErrorAction SilentlyContinue
+if (Test-Path $stageRoot) { throw "could not clear $stageRoot (a file in it is in use)" }
 New-Item -ItemType Directory -Force (Join-Path $stage 'victory') | Out-Null
 Copy-Item (Join-Path $target 'diag\victory.exe') (Join-Path $stage 'victory\victory.exe')
 New-Item -ItemType Directory -Force (Join-Path $stage 'victory-rt') | Out-Null
@@ -68,7 +72,7 @@ No game files are included. Source code (GPL-3.0-or-later): https://github.com/H
 $zip = Join-Path $root "dist\victory-scarlett-play-$version.zip"
 Remove-Item $zip -ErrorAction SilentlyContinue
 # Windows' tar (bsdtar) writes a standard zip with '/' separators (PowerShell 5.1's Compress-Archive writes '\').
-Push-Location (Join-Path $root 'dist')
+Push-Location $stageRoot
 tar -a -c -f $zip victory-scarlett-play
 $ok = $LASTEXITCODE -eq 0
 Pop-Location
