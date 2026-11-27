@@ -203,7 +203,15 @@ fn record_opening(exe: &Path, cfg: &Config, hw: &Hardware, s: &Arc<Mutex<Status>
         }
         if let Some(code) = child.try_wait().map_err(|e| e.to_string())? {
             // The game ended by itself: whatever it recorded is kept.
-            break if t > 60 { Ok(()) } else { Err(format!("the game stopped after {t} s ({code}); see the log in {}", config::logs_dir().display())) };
+            // A recording cut short (the game crashed) covers too little: not counted as done.
+            break if t >= RECORD_SECONDS * 2 / 3 {
+                Ok(())
+            } else {
+                Err(format!(
+                    "the game stopped after {t} s ({code}) while recording the opening - the recording is not complete. With ray tracing on this can crash; try Standard lighting. Log: {}",
+                    config::logs_dir().join("setup-opening.log").display()
+                ))
+            };
         }
         if t >= RECORD_SECONDS {
             break Ok(());
@@ -258,9 +266,10 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
         let mut child = game::spawn_logged(cmd, log.clone(), watch.clone(), None).map_err(|e| format!("could not start the game: {e}"))?;
         let started = Instant::now();
         let mut next_shot = Duration::from_secs(4 * 60);
-        // A setup recording cut off while muted left victory.exe muted in Windows' memory: unmuted once here.
+        // Windows remembers an app's mute, and a setup recording that ended without unmuting (the game crashed)
+        // leaves victory.exe muted: every Play unmutes the game's audio once it has opened (within its first minute).
         let marker = config::home().join("recording-muted");
-        let mut unmute_left = if marker.is_file() { 60 } else { 0 };
+        let mut unmute_left = 60;
         let code = loop {
             if let Some(code) = child.try_wait().map_err(|e| e.to_string())? {
                 break Some(code);
