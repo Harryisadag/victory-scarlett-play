@@ -144,7 +144,11 @@ pub fn run(jobs: Option<usize>, limit: Option<usize>, again: bool, used: bool, t
 /// them and they come quickly; those that ended a process are left out. Not
 /// all the known ones: one process holding the compiler's memory for 88,000
 /// pipelines is what `AT_ONCE` keeps `run` from.
-pub fn into_library(jobs: Option<usize>) -> Result<()> {
+///
+/// `used` (`VICTORY_PRELOAD_USED=1`): the early list alone. The slow list is of every pipeline the title ever
+/// created that took a second or more (1,260 at 3 to 7 s each, mostly never drawn with): in a used-only preload
+/// they were most of this step (a player's PC: step 2's 3,686 pipelines in 3.4 min, then this step's 7,377 far longer).
+pub fn into_library(jobs: Option<usize>, used: bool) -> Result<()> {
     let dir = folder()?;
     let cfg = victory_core::Config::load()?;
     known::use_library(cfg.cache_subdir("shaders")?);
@@ -157,7 +161,7 @@ pub fn into_library(jobs: Option<usize>) -> Result<()> {
     let mut all: Vec<usize> = (0..keys.len())
         .filter(|&n| {
             let key = keys[n].as_str();
-            !bad.contains(key) && (early.contains(key) || slow.contains(key))
+            !bad.contains(key) && (early.contains(key) || (!used && slow.contains(key)))
         })
         .collect();
     all.sort_by_key(|&n| (!early.contains(keys[n].as_str()), &keys[n]));

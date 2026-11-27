@@ -410,7 +410,7 @@ fn main() -> Result<()> {
             // made when first drawn, as without a preload.
             let used = std::env::var_os("VICTORY_PRELOAD_USED").is_some_and(|v| v == "1");
             warm::run(None, None, false, used, None)?;
-            warm::into_library(None)
+            warm::into_library(None, used)
         }
         #[cfg(windows)]
         Command::Play(_) => unreachable!("handled above"),
