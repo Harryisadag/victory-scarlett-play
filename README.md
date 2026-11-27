@@ -17,8 +17,15 @@ keeps it up to date.
   - a fix for a crash when the game uses a page of memory while the rest of its view is remapped,
   - pipelines the game uses are recorded and compiled ahead of the next start (no pop-in on first visits),
   - test fixes.
-- `apps/launcher`: the launcher (Windows app): hardware check, settings picked for your PC, a one-time first-run setup,
-  Play, update check, opt-in reports.
+- A second game layer to choose in the launcher, **NVIDIA-RT**: [Kemerd/VIctory-NVIDIA-RT](https://github.com/Kemerd/VIctory-NVIDIA-RT)
+  `rt-test-9` (`60368f80`) plus the RTX 50-series shader fix, on this repository's branch `engine-rt`, built from
+  source. A faster frame pipeline (its author: 11.8 -> 21.9 fps median on an RTX 5090), DLSS, DLSS frame generation
+  up to 6x, NVIDIA Reflex, HDR10, 21:9 and 32:9. NVIDIA's DLSS files are not included: the launcher fetches them
+  from NVIDIA's own GitHub on your PC, once, when you ask it to.
+- `apps/launcher`: the launcher (Windows app): hardware check, settings picked for your PC, the choice of game layer
+  and its settings, a one-time first-run setup (Scarlett), Play, verify game files (read-only), storage (cache sizes,
+  clearing a cache), the launcher minimised while you play, help after a lost-device crash (including a one-click
+  `TdrDelay`), crash files kept with the logs, update check, opt-in reports.
 - `relay`: the small server the opt-in reports go through.
 
 ## Play
@@ -44,7 +51,9 @@ cargo build --release -p launcher --locked
 ## Credits
 
 Marvisak/VIctory and its contributors; fxceless/victory-fork; avatarmanz/VIctory-7900XTX; codec-d/cool_fox;
-Op-lite/victory-scarlett; and every pull-request author named in the history. Licence: GPL-3.0-or-later (`LICENSE`).
+Op-lite/victory-scarlett; Kemerd/VIctory-NVIDIA-RT and trustno1-coder/VIctory-NVIDIA (the NVIDIA-RT layer and its
+`PLAY.cmd` choices, mirrored in the launcher); ZigZagBoi1/ScarlettPort (the game-file lists of "verify game files",
+and the minimise-while-playing idea); and every pull-request author named in the history. Licence: GPL-3.0-or-later (`LICENSE`).
 
 ---
 

@@ -9,9 +9,11 @@ mod hardware;
 mod jobs;
 mod presets;
 mod report;
+mod rt;
 mod update;
+mod verify;
 
-use config::{Config, Lighting};
+use config::{Config, Engine, Lighting};
 use eframe::egui::{self, Color32, RichText};
 use hardware::Hardware;
 use std::sync::{Arc, Mutex};
@@ -109,12 +111,21 @@ struct App {
     note: Option<(bool, String)>,
     update: UpdateState,
     reporting: Option<Arc<Mutex<Option<Result<(), String>>>>>,
+    /// The NVIDIA-RT layer's victory.exe, when it is there.
+    rt_exe: Option<std::path::PathBuf>,
+    /// "Verify game files" running or done: its summary.
+    verify: Option<Arc<Mutex<Option<verify::Report>>>>,
+    /// The window was minimised for a game session: restored when it ends.
+    minimized_for_game: bool,
+    /// Storage figures (bytes): Scarlett caches, NVIDIA-RT caches, logs, saves; refreshed on demand.
+    storage: Option<[u64; 4]>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
 enum JobKind {
     Setup,
     Play,
+    Dlss,
 }
 
 impl App {
@@ -128,8 +139,16 @@ impl App {
             note: None,
             update: UpdateState::Idle,
             reporting: None,
+            rt_exe: rt::exe(),
+            verify: None,
+            minimized_for_game: false,
+            storage: None,
             cfg,
         };
+        // A saved choice of a layer this folder does not have falls back to Scarlett.
+        if app.cfg.engine == Engine::NvidiaRt && app.rt_exe.is_none() {
+            app.cfg.engine = Engine::Scarlett;
+        }
         app.record_opening = !jobs::recorded(&app.cfg);
         if app.cfg.check_updates {
             app.start_update_check();
@@ -144,7 +163,19 @@ impl App {
         self.update = UpdateState::Checking(slot);
     }
 
+    /// The victory.exe of the chosen layer.
+    fn engine_exe(&self) -> Option<std::path::PathBuf> {
+        match self.cfg.engine {
+            Engine::Scarlett => self.exe.clone(),
+            Engine::NvidiaRt => self.rt_exe.clone(),
+        }
+    }
+
     fn setup_done(&self) -> bool {
+        // The NVIDIA-RT layer has no setup of its own: it translates and builds as it plays.
+        if self.cfg.engine == Engine::NvidiaRt {
+            return true;
+        }
         match &self.exe {
             Some(exe) => self.cfg.setup_done_for.as_deref() == Some(&jobs::setup_key(exe, &self.cfg)),
             None => false,
@@ -173,6 +204,7 @@ impl App {
             match (kind, error) {
                 (_, Some(e)) if e == "cancelled" => self.note = Some((false, "Stopped.".into())),
                 (_, Some(e)) => self.note = Some((true, e)),
+                (JobKind::Dlss, None) => self.note = Some((false, "NVIDIA's DLSS and frame generation files are ready.".into())),
                 (JobKind::Setup, None) => {
                     if let Some(exe) = &self.exe {
                         self.cfg.setup_done_for = Some(jobs::setup_key(exe, &self.cfg));
@@ -181,18 +213,30 @@ impl App {
                     self.note = Some((false, "Setup finished. Press Play.".into()));
                 }
                 (JobKind::Play, None) => {
-                    if let Some(exe) = &self.exe {
+                    if let Some(exe) = &self.exe
+                        && self.cfg.engine == Engine::Scarlett
+                    {
                         // A play run translated again if needed: the caches now fit this build and these settings.
                         self.cfg.setup_done_for = Some(jobs::setup_key(exe, &self.cfg));
                         self.cfg.save();
                     }
-                    self.note = Some((false, step));
+                    let lost = session.as_ref().is_some_and(|s| s.watch.lost_device);
+                    let crashes = session.as_ref().map(|s| s.crash_files.clone()).unwrap_or_default();
+                    let mut text = step;
+                    if lost {
+                        text.push_str(LOST_DEVICE_HELP);
+                    }
+                    if !crashes.is_empty() {
+                        text.push_str(&format!("
+Crash files (in the logs folder): {}", crashes.iter().filter_map(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).collect::<Vec<_>>().join(", ")));
+                    }
+                    self.note = Some((lost || !crashes.is_empty(), text));
                     if let Some(session) = session
                         && self.cfg.reports != Some(false)
                         && report::available()
                         && session.minutes >= 1.0
                     {
-                        let build = self.exe.as_deref().map(game::build_stamp).unwrap_or_default();
+                        let build = self.engine_exe().as_deref().map(game::build_stamp).unwrap_or_default();
                         let r = report::build(&self.cfg, &self.hw, &session, &build);
                         let slot = Arc::new(Mutex::new(None));
                         let s = slot.clone();
@@ -309,6 +353,11 @@ impl App {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll();
+        if self.minimized_for_game && !matches!(self.job, Some((JobKind::Play, _))) {
+            self.minimized_for_game = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
         if self.job.is_some() || matches!(self.update, UpdateState::Checking(_) | UpdateState::Installing(_)) || self.reporting.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(300));
         }
@@ -317,7 +366,7 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.heading("victory-scarlett-play");
-                ui.label(RichText::new("The Scarlett build of VIctory. Bring your own dump - no game files are included.").weak());
+                ui.label(RichText::new("Two builds of VIctory: Scarlett and NVIDIA-RT. Bring your own dump - no game files are included.").weak());
                 ui.add_space(6.0);
                 self.ui_update_banner(ui);
 
@@ -363,8 +412,14 @@ impl eframe::App for App {
                     let color = if f.blocking { Color32::from_rgb(220, 80, 70) } else { Color32::from_rgb(210, 160, 50) };
                     ui.colored_label(color, format!("{} {}", if f.blocking { "✖" } else { "⚠" }, f.text));
                 }
-                if self.exe.is_none() {
-                    ui.colored_label(Color32::from_rgb(220, 80, 70), "✖ victory.exe was not found next to the launcher (expected in the 'victory' folder). Re-extract the release zip.");
+                if self.engine_exe().is_none() {
+                    ui.colored_label(
+                        Color32::from_rgb(220, 80, 70),
+                        format!(
+                            "✖ victory.exe was not found next to the launcher (expected in the '{}' folder). Re-extract the release zip.",
+                            if self.cfg.engine == Engine::Scarlett { "victory" } else { "victory-rt" }
+                        ),
+                    );
                 }
 
                 // --- Settings
@@ -375,6 +430,27 @@ impl eframe::App for App {
                     let auto = presets::pick(&self.hw);
                     let current = presets::chosen(&self.cfg, &self.hw);
                     let mut changed = false;
+                    ui.horizontal(|ui| {
+                        ui.label("Game layer:");
+                        changed |= ui
+                            .radio_value(&mut self.cfg.engine, Engine::Scarlett, "Scarlett")
+                            .on_hover_text("Op-lite/victory-scarlett with this project's fixes: the first-run setup records the opening so faces and scenes come out right; mouse & keyboard in a GTA PC layout")
+                            .changed();
+                        let rt_there = self.rt_exe.is_some();
+                        let r = ui
+                            .add_enabled(rt_there, egui::RadioButton::new(self.cfg.engine == Engine::NvidiaRt, "NVIDIA-RT (Kemerd test 9)"))
+                            .on_hover_text("Kemerd/VIctory-NVIDIA-RT: a faster frame pipeline (11.8 -> 21.9 fps median on its author's RTX 5090), DLSS, frame generation up to 6x, Reflex, HDR10, 21:9 and 32:9. F1 in the game is its settings menu, F3 its stats. No setup: the first session translates as it goes.")
+                            .on_disabled_hover_text("victory-rt\\victory.exe is not in this folder");
+                        if r.clicked() && self.cfg.engine != Engine::NvidiaRt {
+                            self.cfg.engine = Engine::NvidiaRt;
+                            changed = true;
+                        }
+                    });
+                    let scarlett = self.cfg.engine == Engine::Scarlett;
+                    if !scarlett {
+                        changed |= ui_rt(ui, &mut self.cfg.rt, self.hw.vendor == hardware::Vendor::Nvidia, &self.hw.gpu);
+                    }
+                    if scarlett {
                     changed |= ui
                         .checkbox(&mut self.cfg.kbm, "Mouse & keyboard (GTA PC layout - press F2 or ~ in game to lock the mouse for looking, Esc to free it)")
                         .on_hover_text("W A S D move, mouse looks, left/right click shoot/aim, Shift sprint, Space jump, F enter vehicle, R reload, Tab weapon wheel, Q cover, E interact, Ctrl crouch, C look back, V camera, P pause, M phone. An Xbox controller works at the same time.")
@@ -384,6 +460,8 @@ impl eframe::App for App {
                         .on_hover_text("After a camera cut the last picture stays up to 0.8 s while the new scene streams in, instead of showing black ground and missing textures")
                         .changed();
                     changed |= ui.checkbox(&mut self.cfg.hooks, "Faster memory hooks (10-15 ms a frame less; a few small textures may flicker)").changed();
+                    }
+                    changed |= ui.checkbox(&mut self.cfg.minimize_while_playing, "Minimise the launcher while the game runs").changed();
                     if report::available() {
                         let mut on = self.cfg.reports != Some(false);
                         if ui.checkbox(&mut on, "Send a report after each session (hardware, fps, crash logs)").changed() {
@@ -395,7 +473,10 @@ impl eframe::App for App {
                         }
                     }
                     changed |= ui.checkbox(&mut self.cfg.check_updates, "Check for updates at start").changed();
+                    // The NVIDIA-RT layer's choices are all shown above; Advanced is Scarlett's.
+                    if scarlett {
                     egui::CollapsingHeader::new("Advanced").default_open(false).show(ui, |ui| {
+                        if scarlett {
                         egui::ComboBox::from_label("Preset")
                             .selected_text(if self.cfg.preset.is_none() { format!("Automatic: {}", auto.label) } else { current.label.to_owned() })
                             .show_ui(ui, |ui| {
@@ -426,6 +507,8 @@ impl eframe::App for App {
                             changed |= ui.radio_value(&mut self.cfg.render_scale, 0.75, "75%").on_hover_text("Less work for the graphics card, a little softer").changed();
                             changed |= ui.radio_value(&mut self.cfg.render_scale, 0.5, "50%").on_hover_text("Much less work for the graphics card, softer; helps weaker cards, not a slow CPU").changed();
                         });
+                        }
+                        if scarlett {
                         ui.horizontal(|ui| {
                             ui.label("Console mode:");
                             let preset_console = current.console;
@@ -441,7 +524,9 @@ impl eframe::App for App {
                                 .on_hover_text("Lower resolution and smaller memory budgets: easier on the graphics card and VRAM; does little for a slow CPU")
                                 .changed();
                         });
+                        }
                     });
+                    }
                     if changed {
                         self.cfg.save();
                     }
@@ -450,7 +535,22 @@ impl eframe::App for App {
                 // --- Setup and play
                 ui.add_space(8.0);
                 ui.label(RichText::new("4. Play").strong());
-                let ready = self.cfg.game_dir.is_some() && self.exe.is_some() && !self.blocking();
+                let ready = self.cfg.game_dir.is_some() && self.engine_exe().is_some() && !self.blocking();
+                if self.cfg.engine == Engine::NvidiaRt && !rt::has_dlss() {
+                    ui.colored_label(
+                        Color32::from_rgb(210, 160, 50),
+                        "⚠ NVIDIA's DLSS and frame generation files are not on this PC yet: without them the game uses its own upscaling and no frame generation.",
+                    );
+                    if ui
+                        .add_enabled(!busy && self.rt_exe.is_some(), egui::Button::new("Download them from NVIDIA's GitHub (about 70 MB, once)"))
+                        .on_hover_text("NVIDIA's own files under NVIDIA's licences, from github.com/NVIDIA-RTX/Streamline, into %LOCALAPPDATA%\\victory\\nvidia-sdk. Not part of this project.")
+                        .clicked()
+                        && let Some(exe) = self.rt_exe.clone()
+                    {
+                        self.note = None;
+                        self.job = Some((JobKind::Dlss, jobs::get_dlss(exe)));
+                    }
+                }
                 let setup_done = self.setup_done();
                 if !setup_done {
                     if jobs::recorded(&self.cfg) {
@@ -481,7 +581,8 @@ impl eframe::App for App {
                 }
                 ui.horizontal(|ui| {
                     let can = ready && !busy;
-                    if ui.add_enabled(can, egui::Button::new(RichText::new(if setup_done { "Run setup again" } else { "Run first-run setup" }))).clicked()
+                    if self.cfg.engine == Engine::Scarlett
+                        && ui.add_enabled(can, egui::Button::new(RichText::new(if setup_done { "Run setup again" } else { "Run first-run setup" }))).clicked()
                         && let Some(exe) = self.exe.clone()
                     {
                         self.note = None;
@@ -497,9 +598,13 @@ impl eframe::App for App {
                         r.on_hover_text("Setup not done: the first session will have missing faces and pop-in (run the first-run setup first)")
                     };
                     if r.clicked()
-                        && let Some(exe) = self.exe.clone()
+                        && let Some(exe) = self.engine_exe()
                     {
                         self.note = None;
+                        if self.cfg.minimize_while_playing {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                            self.minimized_for_game = true;
+                        }
                         let refresh = !setup_done;
                         self.job = Some((JobKind::Play, jobs::play(exe, self.cfg.clone(), self.hw.clone(), refresh, self.cfg.report_screenshots && self.cfg.reports != Some(false))));
                     }
@@ -516,11 +621,16 @@ impl eframe::App for App {
                     }
                     ui.label(RichText::new(&st.detail).small());
                     drop(st);
-                    let label = if *kind == JobKind::Play { "Stop the game" } else { "Cancel setup" };
+                    let label = match kind {
+                        JobKind::Play => "Stop the game",
+                        JobKind::Setup => "Cancel setup",
+                        JobKind::Dlss => "Cancel the download",
+                    };
                     if ui.button(label).clicked() {
                         job.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
                 }
+                let mut tdr_result = None;
                 if let Some((bad, text)) = &self.note {
                     ui.add_space(6.0);
                     if *bad {
@@ -528,9 +638,22 @@ impl eframe::App for App {
                     } else {
                         ui.label(text);
                     }
+                    if text.contains(LOST_DEVICE_HELP)
+                        && hardware::tdr_delay().is_none_or(|d| d < 10)
+                        && ui.button("Give the graphics card 10 s before Windows resets it (asks for administrator rights; restart after)").clicked()
+                    {
+                        tdr_result = Some(match hardware::set_tdr_delay_10() {
+                            Ok(()) => (false, "TdrDelay is 10 s now. Restart Windows for it to take effect.".to_owned()),
+                            Err(e) => (true, format!("TdrDelay: {e}")),
+                        });
+                    }
+                }
+                if tdr_result.is_some() {
+                    self.note = tdr_result;
                 }
 
                 ui.add_space(12.0);
+                self.ui_tools(ui);
                 ui.separator();
                 ui.horizontal(|ui| {
                     if ui.button("Open logs folder").clicked() {
@@ -544,6 +667,206 @@ impl eframe::App for App {
                 });
                 ui.label(RichText::new(format!("Caches and saves: {}", config::home().display())).small().weak());
             });
+        });
+    }
+}
+
+/// Appended to the note after a session that lost the graphics card (Kemerd/VIctory-NVIDIA-RT's advice).
+const LOST_DEVICE_HELP: &str = "\nThe graphics card stopped answering. These layers push the card harder and longer than most games: take off any GPU overclock or undervolt (MSI Afterburner, the NVIDIA app's auto-tune) and test at stock clocks; and give Windows more time before it resets the card (the button below sets TdrDelay to 10 s).";
+
+/// The NVIDIA-RT layer's choices (its `PLAY.cmd`'s ten). Returns whether one changed.
+fn ui_rt(ui: &mut egui::Ui, rt: &mut config::RtSettings, nvidia: bool, gpu: &str) -> bool {
+    let mut changed = false;
+    if !nvidia {
+        ui.colored_label(Color32::from_rgb(210, 160, 50), "⚠ This layer is made for NVIDIA RTX cards: DLSS, frame generation and Reflex need one.");
+    }
+    egui::Grid::new("rt").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+        ui.label("Resolution");
+        egui::ComboBox::from_id_salt("rt-res")
+            .selected_text(match rt.res.as_str() {
+                "1440" => "2560x1440".to_owned(),
+                "1080to1440" => "1920x1080 upscaled to 1440".to_owned(),
+                "4k" => "3840x2160".to_owned(),
+                "wide" => "5120x1440 (32:9)".to_owned(),
+                other => other.to_owned(),
+            })
+            .show_ui(ui, |ui| {
+                for (v, l) in [
+                    ("1440", "2560x1440"),
+                    ("1080to1440", "1920x1080 upscaled to 1440 (faster)"),
+                    ("4k", "3840x2160"),
+                    ("3440x1440", "3440x1440 (21:9)"),
+                    ("wide", "5120x1440 (32:9)"),
+                ] {
+                    changed |= ui.selectable_value(&mut rt.res, v.to_owned(), l).changed();
+                }
+            });
+        ui.end_row();
+        ui.label("Window");
+        ui.horizontal(|ui| {
+            changed |= ui.radio_value(&mut rt.windowed, false, "Fullscreen, no border").changed();
+            changed |= ui.radio_value(&mut rt.windowed, true, "In a window").changed();
+        });
+        ui.end_row();
+        ui.label("DLSS");
+        ui.horizontal(|ui| {
+            for (v, l) in [("quality", "Quality"), ("balanced", "Balanced"), ("performance", "Performance"), ("dlaa", "DLAA"), ("off", "Off")] {
+                changed |= ui.radio_value(&mut rt.dlss, v.to_owned(), l).changed();
+            }
+        });
+        ui.end_row();
+        ui.label("Frame generation");
+        let rtx50 = gpu.contains("RTX 50");
+        egui::ComboBox::from_id_salt("rt-fg")
+            .selected_text(match rt.framegen {
+                0 => "Ready - switch on in F1".to_owned(),
+                1 => "Not loaded".to_owned(),
+                n => format!("{n}x from the start"),
+            })
+            .show_ui(ui, |ui| {
+                changed |= ui.selectable_value(&mut rt.framegen, 0, "Ready - switch on in F1").changed();
+                changed |= ui.selectable_value(&mut rt.framegen, 2, "2x from the start").changed();
+                for n in 3..=6 {
+                    let label = if rtx50 { format!("{n}x from the start") } else { format!("{n}x from the start (needs an RTX 50)") };
+                    changed |= ui.selectable_value(&mut rt.framegen, n, label).changed();
+                }
+                changed |= ui.selectable_value(&mut rt.framegen, 1, "Not loaded (saves 1.5-2 GB of VRAM)").changed();
+            });
+        ui.end_row();
+        ui.label("NVIDIA Reflex");
+        ui.horizontal(|ui| {
+            changed |= ui.radio_value(&mut rt.reflex, "boost".to_owned(), "On + boost").changed();
+            changed |= ui.radio_value(&mut rt.reflex, "on".to_owned(), "On").changed();
+            changed |= ui.radio_value(&mut rt.reflex, "off".to_owned(), "Off").on_hover_text("Frame generation turns it on anyway").changed();
+        });
+        ui.end_row();
+        ui.label("Frame cap");
+        egui::ComboBox::from_id_salt("rt-fps")
+            .selected_text(if rt.fps_cap >= 1000 { "None".to_owned() } else { rt.fps_cap.to_string() })
+            .show_ui(ui, |ui| {
+                for (v, l) in [(1000, "None"), (30, "30"), (60, "60"), (120, "120"), (144, "144")] {
+                    changed |= ui.selectable_value(&mut rt.fps_cap, v, l).changed();
+                }
+            });
+        ui.end_row();
+        ui.label("Console");
+        ui.horizontal(|ui| {
+            changed |= ui.radio_value(&mut rt.series_s, false, "Series X (recommended)").changed();
+            changed |= ui.radio_value(&mut rt.series_s, true, "Series S").on_hover_text("1280x720 inside: much softer; only for weaker cards").changed();
+        });
+        ui.end_row();
+        ui.label("Speed");
+        ui.horizontal(|ui| {
+            changed |= ui.radio_value(&mut rt.fast, true, "Fast (recommended)").changed();
+            changed |= ui.radio_value(&mut rt.fast, false, "Plain").on_hover_text("The official release's settings").changed();
+        });
+        ui.end_row();
+    });
+    changed |= ui.checkbox(&mut rt.hdr, "HDR10 (turn Windows HDR on first)").changed();
+    if rt.res == "wide" || rt.res.contains('x') {
+        changed |= ui.checkbox(&mut rt.ui_stretch, "Stretch the interface across the ultrawide screen (instead of 16:9 in the middle)").changed();
+    }
+    changed |= ui
+        .checkbox(&mut rt.ray_tracing, "The game's own ray tracing (experimental: 5-8 fps)")
+        .on_hover_text("VICTORY_RT_NATIVE: the title's builder calls on the RTX cores")
+        .changed();
+    ui.label(
+        RichText::new("In the game: F1 settings menu (keys can be rebound there), F3 stats. The launcher's resolution, DLSS, frame generation, HDR and window choices win over what F1 saved; every other F1 choice is kept.")
+            .small()
+            .weak(),
+    );
+    changed
+}
+
+/// Bytes in a folder and everything under it.
+fn dir_size(dir: &std::path::Path) -> u64 {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| match e.file_type() {
+            Ok(t) if t.is_dir() => dir_size(&e.path()),
+            Ok(_) => e.metadata().map(|m| m.len()).unwrap_or(0),
+            Err(_) => 0,
+        })
+        .sum()
+}
+
+impl App {
+    /// Verify game files; storage (cache sizes, clearing a cache).
+    fn ui_tools(&mut self, ui: &mut egui::Ui) {
+        egui::CollapsingHeader::new("Tools").default_open(false).show(ui, |ui| {
+            let busy = self.busy();
+            ui.horizontal(|ui| {
+                let running = self.verify.as_ref().is_some_and(|v| v.lock().unwrap().is_none());
+                if ui
+                    .add_enabled(self.cfg.game_dir.is_some() && !running, egui::Button::new("Verify game files"))
+                    .on_hover_text("Checks that every archive and pack is there, not empty, and readable. Reads only: nothing in the game folder is changed.")
+                    .clicked()
+                    && let Some(dir) = self.cfg.game_dir.clone()
+                {
+                    let slot = Arc::new(Mutex::new(None));
+                    let s = slot.clone();
+                    std::thread::spawn(move || *s.lock().unwrap() = Some(verify::check(&dir)));
+                    self.verify = Some(slot);
+                }
+                if running {
+                    ui.add(egui::Spinner::new());
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
+                }
+            });
+            if let Some(v) = &self.verify
+                && let Some(r) = v.lock().unwrap().as_ref()
+            {
+                let color = if r.problems.is_empty() { Color32::from_rgb(90, 170, 90) } else { Color32::from_rgb(220, 80, 70) };
+                ui.colored_label(color, r.summary());
+            }
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Storage").strong());
+                if ui.small_button("Measure").clicked() {
+                    self.storage = Some([dir_size(&config::cache_dir()), dir_size(&config::rt_cache_dir()), dir_size(&config::logs_dir()), dir_size(&config::saves_dir())]);
+                }
+            });
+            if let Some([scarlett, rt, logs, saves]) = self.storage {
+                let gb = |b: u64| format!("{:.2} GB", b as f64 / 1e9);
+                let mut clear = None;
+                egui::Grid::new("storage").num_columns(3).spacing([12.0, 2.0]).show(ui, |ui| {
+                    ui.label("Scarlett shaders and pipelines");
+                    ui.label(gb(scarlett));
+                    if ui
+                        .add_enabled(!busy && scarlett > 0, egui::Button::new("Clear"))
+                        .on_hover_text("Built again by the next setup or Play (minutes); the opening recording is lost too")
+                        .clicked()
+                    {
+                        clear = Some(config::cache_dir());
+                    }
+                    ui.end_row();
+                    ui.label("NVIDIA-RT shaders and pipelines");
+                    ui.label(gb(rt));
+                    if ui.add_enabled(!busy && rt > 0, egui::Button::new("Clear")).on_hover_text("Built again while playing").clicked() {
+                        clear = Some(config::rt_cache_dir());
+                    }
+                    ui.end_row();
+                    ui.label("Logs");
+                    ui.label(gb(logs));
+                    if ui.add_enabled(!busy && logs > 0, egui::Button::new("Clear")).clicked() {
+                        clear = Some(config::logs_dir());
+                    }
+                    ui.end_row();
+                    ui.label("Saves (never cleared here)");
+                    ui.label(gb(saves));
+                    ui.end_row();
+                });
+                if let Some(dir) = clear {
+                    let _ = std::fs::remove_dir_all(&dir);
+                    if dir == config::cache_dir() {
+                        self.cfg.setup_done_for = None;
+                        self.cfg.save();
+                    }
+                    self.storage = None;
+                }
+            }
         });
     }
 }

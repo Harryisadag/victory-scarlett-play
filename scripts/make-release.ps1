@@ -5,9 +5,13 @@
 #   .\scripts\make-release.ps1 -Publish        ... and create the GitHub release v<version> with both files
 #   -Relay https://...workers.dev              the report relay's address (default: this project's relay; '' = reports off)
 #
-# The version is apps\launcher\Cargo.toml's. The zip holds Launcher.exe, victory\victory.exe (diagnostics build, the
-# one Scarlett's figures are measured with), LICENSE and README.txt. Never anything from the game.
-param([switch] $Publish, [string] $Relay = $(if ($env:VSP_RELAY) { $env:VSP_RELAY } else { 'https://victory-scarlett-relay.htspam1.workers.dev' }), [string] $Notes = '')
+# The version is apps\launcher\Cargo.toml's. The zip holds Launcher.exe, victory\victory.exe (Scarlett, diagnostics
+# build, the one Scarlett's figures are measured with), victory-rt\victory.exe (NVIDIA-RT: Kemerd/VIctory-NVIDIA-RT,
+# this repository's branch `engine-rt`, release build), LICENSE and README.txt. Never anything from the game, and
+# nothing of NVIDIA's (the launcher fetches DLSS from NVIDIA on the player's PC).
+#   -RtTree <folder>   a checkout of branch engine-rt (default: a worktree ..\vsp-engine-rt, made if missing)
+param([switch] $Publish, [string] $Relay = $(if ($env:VSP_RELAY) { $env:VSP_RELAY } else { 'https://victory-scarlett-relay.htspam1.workers.dev' }), [string] $Notes = '',
+    [string] $RtTree = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -25,10 +29,28 @@ cargo build --release -p launcher --locked
 if ($LASTEXITCODE -ne 0) { throw 'launcher build failed' }
 
 $target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $root 'target' }
+
+# NVIDIA-RT, from branch engine-rt, into a target folder of its own (its crates share names with Scarlett's).
+if (-not $RtTree) {
+    $RtTree = Join-Path (Split-Path $root) 'vsp-engine-rt'
+    if (-not (Test-Path $RtTree)) { git worktree add $RtTree engine-rt; if ($LASTEXITCODE -ne 0) { throw 'no engine-rt worktree' } }
+}
+$rtTarget = "$target-rt"
+$savedTarget = $env:CARGO_TARGET_DIR
+Push-Location $RtTree
+$env:CARGO_TARGET_DIR = $rtTarget
+cargo xtask policy
+$ok = $LASTEXITCODE -eq 0
+if ($ok) { cargo build --release -p victory --locked; $ok = $LASTEXITCODE -eq 0 }
+$env:CARGO_TARGET_DIR = $savedTarget
+Pop-Location
+if (-not $ok) { throw 'NVIDIA-RT build failed' }
 $stage = Join-Path $root 'dist\victory-scarlett-play'
 Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force (Join-Path $stage 'victory') | Out-Null
 Copy-Item (Join-Path $target 'diag\victory.exe') (Join-Path $stage 'victory\victory.exe')
+New-Item -ItemType Directory -Force (Join-Path $stage 'victory-rt') | Out-Null
+Copy-Item (Join-Path $rtTarget 'release\victory.exe') (Join-Path $stage 'victory-rt\victory.exe')
 Copy-Item (Join-Path $target 'release\launcher.exe') (Join-Path $stage 'Launcher.exe')
 Copy-Item LICENSE $stage
 @"
@@ -36,7 +58,9 @@ victory-scarlett-play $version
 
 1. Unzip this folder anywhere (not inside your game folder).
 2. Run Launcher.exe and pick the folder of your own game dump (the one with game_scarlett_master.exe).
-3. Run the first-run setup once (about 15 minutes), then press Play.
+3. Pick a game layer: Scarlett (run its first-run setup once, about 15 minutes) or NVIDIA-RT (DLSS, frame
+   generation, Reflex, HDR10, ultrawide; no setup; it offers to fetch NVIDIA's DLSS files from NVIDIA once).
+4. Press Play.
 
 No game files are included. Source code (GPL-3.0-or-later): https://github.com/Harryisadag/victory-scarlett-play
 "@ | Set-Content -Encoding utf8 (Join-Path $stage 'README.txt')

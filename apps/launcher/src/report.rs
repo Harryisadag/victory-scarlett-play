@@ -41,7 +41,16 @@ pub fn build(cfg: &Config, hw: &Hardware, s: &Session, build: &str) -> serde_jso
         "install_id": cfg.install_id,
         "launcher_version": crate::update::VERSION,
         "build": build,
-        "preset": format!("{} / {:?}{}", s.preset, cfg.lighting, if cfg.hooks { " / hooks" } else { "" }),
+        "engine": format!("{:?}", cfg.engine),
+        "preset": if cfg.engine == crate::config::Engine::NvidiaRt {
+            // The relay shows 60 characters.
+            format!("NV-RT {} dlss:{} fg:{} rfx:{}{}{}{}", cfg.rt.res, cfg.rt.dlss, cfg.rt.framegen, cfg.rt.reflex,
+                if cfg.rt.fast { " fast" } else { " plain" }, if cfg.rt.ray_tracing { " RT" } else { "" }, if cfg.rt.hdr { " HDR" } else { "" })
+        } else {
+            format!("{} / {:?}{}", s.preset, cfg.lighting, if cfg.hooks { " / hooks" } else { "" })
+        },
+        "crash_files": s.crash_files.iter().filter_map(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).collect::<Vec<_>>(),
+        "tdr_delay": crate::hardware::tdr_delay(),
         "outcome": s.outcome,
         "hardware": {
             "cpu": hw.cpu, "threads": hw.threads, "ram_gb": hw.ram_gb, "commit_limit_gb": hw.commit_limit_gb,

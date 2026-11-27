@@ -243,3 +243,31 @@ fn reg_string(key: &str, value: &str) -> Option<String> {
     let end = buf[..n].iter().position(|&c| c == 0).unwrap_or(n);
     Some(String::from_utf16_lossy(&buf[..end]))
 }
+
+const GRAPHICS_DRIVERS: &str = r"SYSTEM\CurrentControlSet\Control\GraphicsDrivers";
+
+/// Windows' GPU timeout (`TdrDelay`, seconds) if it is set; Windows' default is 2 when it is not.
+pub fn tdr_delay() -> Option<u32> {
+    use windows_sys::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RegGetValueW};
+    let key: Vec<u16> = GRAPHICS_DRIVERS.encode_utf16().chain([0]).collect();
+    let value: Vec<u16> = "TdrDelay".encode_utf16().chain([0]).collect();
+    let mut v = 0u32;
+    let mut len = 4u32;
+    // SAFETY: NUL-terminated names; a DWORD and its size in bytes.
+    let r = unsafe {
+        RegGetValueW(HKEY_LOCAL_MACHINE, key.as_ptr(), value.as_ptr(), RRF_RT_REG_DWORD, std::ptr::null_mut(), (&raw mut v).cast(), &mut len)
+    };
+    (r == 0).then_some(v)
+}
+
+/// Sets `TdrDelay` to 10 seconds (Kemerd/VIctory-NVIDIA-RT's advice for lost-device crashes: long shader and BVH work
+/// can pass Windows' 2-second limit). Needs administrator rights: Windows asks (UAC). Takes effect after a restart.
+pub fn set_tdr_delay_10() -> Result<(), String> {
+    let reg = format!(r"add HKLM\{GRAPHICS_DRIVERS} /v TdrDelay /t REG_DWORD /d 10 /f");
+    let status = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command"])
+        .arg(format!("Start-Process -FilePath reg.exe -ArgumentList '{reg}' -Verb RunAs -WindowStyle Hidden -Wait"))
+        .status()
+        .map_err(|e| e.to_string())?;
+    if status.success() && tdr_delay() == Some(10) { Ok(()) } else { Err("not changed (the administrator prompt was declined?)".into()) }
+}

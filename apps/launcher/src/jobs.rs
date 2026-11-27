@@ -1,6 +1,6 @@
 //! Work done in the background while the window shows how it goes: the first-run setup and playing.
 
-use crate::config::{self, Config};
+use crate::config::{self, Config, Engine};
 use crate::game::{self, Watch};
 use crate::hardware::Hardware;
 use crate::presets;
@@ -33,6 +33,8 @@ pub struct Session {
     pub outcome: String,
     pub watch: Watch,
     pub preset: String,
+    /// Crash files the layer wrote (copied into the logs folder).
+    pub crash_files: Vec<PathBuf>,
 }
 
 pub struct Job {
@@ -249,19 +251,27 @@ pub fn setup(exe: PathBuf, cfg: Config, hw: Hardware, record: bool) -> Job {
     })
 }
 
-/// Plays: brings the caches up to date if needed, starts the game, watches it until it ends.
+/// Plays: brings the caches up to date if needed (Scarlett), starts the game with the chosen layer, watches it until
+/// it ends.
 pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots: bool) -> Job {
     Job::start(move |s, cancel| {
-        if refresh {
-            translate(&exe, &cfg, &hw, s, cancel)?;
-        }
-        warm(&exe, &cfg, &hw, s, cancel)?;
         let game_dir = cfg.game_dir.clone().ok_or("no game folder")?;
         let preset = presets::chosen(&cfg, &hw);
-        let (mut cmd, console) = game::command(&exe, &cfg, &hw, &config::saves_dir());
-        cmd.arg("run").arg(game::game_exe(&game_dir)).arg("--console").arg(console).arg("--execute");
+        let rt = cfg.engine == Engine::NvidiaRt;
+        let started_at = std::time::SystemTime::now();
+        let cmd = if rt {
+            crate::rt::play_command(&exe, &cfg)?
+        } else {
+            if refresh {
+                translate(&exe, &cfg, &hw, s, cancel)?;
+            }
+            warm(&exe, &cfg, &hw, s, cancel)?;
+            let (mut cmd, console) = game::command(&exe, &cfg, &hw, &config::saves_dir());
+            cmd.arg("run").arg(game::game_exe(&game_dir)).arg("--console").arg(console).arg("--execute");
+            cmd
+        };
         let watch = Arc::new(Mutex::new(Watch::default()));
-        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let stamp = started_at.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let log = config::logs_dir().join(format!("game-{stamp}.log"));
         let mut child = game::spawn_logged(cmd, log.clone(), watch.clone(), None).map_err(|e| format!("could not start the game: {e}"))?;
         let started = Instant::now();
@@ -316,10 +326,24 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
         let _ = std::fs::copy(&log, config::logs_dir().join("game-last.log"));
         let minutes = started.elapsed().as_secs_f64() / 60.0;
         let watch = std::mem::take(&mut *watch.lock().unwrap());
+        // The NVIDIA-RT layer leaves crash-<run>.log and .dmp beside its exe: copied to the logs folder.
+        let mut crash_files = Vec::new();
+        if rt {
+            for f in crate::rt::crash_files_since(&exe, started_at) {
+                if let Some(name) = f.file_name() {
+                    let to = config::logs_dir().join(name);
+                    if std::fs::copy(&f, &to).is_ok() {
+                        crash_files.push(to);
+                    }
+                }
+            }
+        }
         let outcome = if watch.lost_device {
             "graphics card lost (device removed)".to_owned()
         } else if watch.panicked {
             "crashed (panic in the layer)".to_owned()
+        } else if !crash_files.is_empty() {
+            "crashed (crash report written)".to_owned()
         } else {
             match code {
                 Some(c) if c.success() => "closed normally".to_owned(),
@@ -330,7 +354,36 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
         let mut st = s.lock().unwrap();
         st.step = format!("Game ended: {outcome}");
         st.detail = String::new();
-        st.session = Some(Session { minutes, outcome, watch, preset: preset.name.to_owned() });
+        let preset = if rt { "nvidia-rt".to_owned() } else { preset.name.to_owned() };
+        st.session = Some(Session { minutes, outcome, watch, preset, crash_files });
         Ok(())
+    })
+}
+
+/// Fetches NVIDIA's DLSS and frame generation files with the NVIDIA-RT layer's `victory get-dlss`.
+pub fn get_dlss(exe: PathBuf) -> Job {
+    Job::start(move |s, cancel| {
+        say(s, "Downloading NVIDIA's DLSS files from NVIDIA's GitHub (about 70 MB)", "", -1.0);
+        let watch = Arc::new(Mutex::new(Watch::default()));
+        let mut child = game::spawn_logged(crate::rt::get_dlss_command(&exe), config::logs_dir().join("get-dlss.log"), watch.clone(), None)
+            .map_err(|e| format!("could not start victory.exe: {e}"))?;
+        loop {
+            if cancel.load(Ordering::Relaxed) {
+                let _ = child.kill();
+                return Err("cancelled".into());
+            }
+            if child.try_wait().map_err(|e| e.to_string())?.is_some() {
+                break;
+            }
+            let last = watch.lock().unwrap().tail.back().cloned().unwrap_or_default();
+            say(s, "Downloading NVIDIA's DLSS files from NVIDIA's GitHub (about 70 MB)", &last.chars().take(140).collect::<String>(), -1.0);
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        if crate::rt::has_dlss() {
+            say(s, "DLSS files ready", "", 1.0);
+            Ok(())
+        } else {
+            Err(format!("the DLSS files did not arrive; see {}", config::logs_dir().join("get-dlss.log").display()))
+        }
     })
 }
