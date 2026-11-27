@@ -137,6 +137,12 @@ fn left_out(shaders: &[Arc<Shader>]) -> Option<&'static str> {
         if builder_asked() {
             return std::env::var_os("VICTORY_ACTIVATE_RAYS").is_some_and(|v| v == "0");
         }
+        // (`VICTORY_PROBE_RAYS=1`, from the Scarlett build) made, against empty
+        // structures: the probes trace and find nothing instead of keeping stale
+        // memory (the violet vegetation).
+        if victory_shader::emit::probe_rays() {
+            return false;
+        }
         std::env::var_os("VICTORY_ACTIVATE_RAYS").is_none_or(|v| v == "0")
     });
     if skip_activate && named(shaders, b"CS_ScreenProbes_ActivateRays") {

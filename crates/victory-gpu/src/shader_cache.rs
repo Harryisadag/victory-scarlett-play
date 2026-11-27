@@ -95,6 +95,12 @@ fn build() -> [u8; 32] {
             bytes.extend_from_slice(b"VICTORY_EARLY_DEPTH=1");
             bytes.push(0);
         }
+        // And whether node tests answer as for an empty structure while the
+        // builder is off (`VICTORY_PROBE_RAYS=1`): only while it is on, as above.
+        if victory_shader::emit::probe_rays() {
+            bytes.extend_from_slice(b"VICTORY_PROBE_RAYS=1");
+            bytes.push(0);
+        }
         // And which clean-up passes ran over the translated code.
         bytes.extend_from_slice(&victory_shader::emit::shader_opt().to_le_bytes());
         bytes

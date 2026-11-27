@@ -1662,6 +1662,11 @@ impl State {
         if kind == victory_shader::emit::USER_DISPATCH_THREADS_X {
             return 0;
         }
+        // (`VICTORY_PROBE_RAYS`, from the Scarlett build) The structures are
+        // empty: never built while the builder is off.
+        if kind == victory_shader::emit::USER_BVH_EMPTY {
+            return u32::from(!crate::pipeline::builder_runs());
+        }
         if kind == USER_ROOT_ADDRESS || kind == USER_ROOT_ADDRESS + 1 {
             return match self.roots_ref(compute).get(usize::from(slot)) {
                 Some(&Root::View(address)) if kind == USER_ROOT_ADDRESS => address as u32,
