@@ -904,8 +904,8 @@ fn ui_rt(ui: &mut egui::Ui, rt: &mut config::RtSettings, nvidia: bool, gpu: &str
         .on_hover_text("victory-sley-fork measured no more pixelated, noisy skin with textures refreshed only once memory holds still")
         .changed();
     changed |= ui
-        .checkbox(&mut rt.indoor_reflections, "Indoor floor reflections fix (experimental: frosted, speckled floors)")
-        .on_hover_text("Indoors, reflections that find nothing take the room's light instead of the sky's. New: turn off if floors look wrong")
+        .checkbox(&mut rt.indoor_reflections, "Indoor floor reflections fix (frosted floors; may dull outdoor reflections)")
+        .on_hover_text("Reflections that find nothing are held to the room's light instead of the sky's: clean floors indoors. Turn off if cars or windows outdoors look dull")
         .changed();
     ui.horizontal(|ui| {
         ui.label("Texture detail:");

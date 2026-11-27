@@ -68,8 +68,8 @@ pub struct RtSettings {
     /// Textures are refreshed only once title memory holds still (`VICTORY_TEXTURE_NO_WAIT=0`): victory-sley-fork
     /// measured no more pixelated, noisy skin on characters. Off: the layer's own (=1).
     pub clean_skin: bool,
-    /// Indoor floors' reflections from the room's light, not the sky (`VICTORY_AMBIENT_SPECULAR_HALF_DEPTH=1`):
-    /// the stand-in for reflections also follows the indoor miss program, which has only a half-size depth. Off: new.
+    /// Indoor floors' reflections held to the room's light, not the sky (`VICTORY_REFLECT_BOUND=0.15`): the
+    /// frosted floors indoors. Off: outdoors it may dull cars' and windows' reflections (not tried yet).
     pub indoor_reflections: bool,
     /// Large textures start this many levels down (`VICTORY_TEXTURE_MIP_DROP`, LightYearZh; 0..=3): for 8 GB cards.
     pub mip_drop: u32,
