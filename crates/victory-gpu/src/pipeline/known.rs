@@ -338,6 +338,13 @@ pub fn keep_library() {
     super::library::save(true);
 }
 
+/// Saves the library if pipelines were added and its own 20 s have passed (`library::save(false)`): during
+/// `victory preload`'s last step, so that a preload stopped there keeps what it stored (it saved only at its end, and
+/// a player stopped one 20 minutes in).
+pub fn keep_library_soon() {
+    super::library::save(false);
+}
+
 /// Makes the host pipelines of those of `which` (numbers in the file) and
 /// lets each go again: the driver's cache on disk keeps them. `each` is told
 /// the number before, and what came of it after: milliseconds and whether

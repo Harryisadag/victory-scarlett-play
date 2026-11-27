@@ -174,7 +174,11 @@ pub fn into_library(jobs: Option<usize>) -> Result<()> {
                     let Some((_, there)) = came else { return };
                     made.fetch_add(usize::from(there), Ordering::Relaxed);
                     let n = count.fetch_add(1, Ordering::Relaxed) + 1;
-                    if n.is_multiple_of(500) {
+                    // Kept on disk as it goes (at most every 20 s), not only at the end.
+                    if n.is_multiple_of(100) {
+                        known::keep_library_soon();
+                    }
+                    if n.is_multiple_of(250) {
                         println!("{n} of {total} in the library, {:.0} s", began.elapsed().as_secs_f64());
                     }
                 });
