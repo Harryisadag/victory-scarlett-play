@@ -924,6 +924,9 @@ extern "system" fn present(
         }
     }
     let _presenting = Presenting(std::time::Instant::now());
+    // (VICTORY_CUT_HOLD=wait) At a scene change the title waits here until what the scene needs has arrived.
+    #[cfg(windows)]
+    crate::cuthold::wait(FRAMES.load(Ordering::Relaxed) + 1);
     let _site = crate::hangwatch::at(&"title call: Present (queue::present)");
     #[cfg(all(windows, feature = "diagnostics"))]
     crate::copystat::present_begins();
