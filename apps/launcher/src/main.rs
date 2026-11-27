@@ -461,7 +461,7 @@ impl eframe::App for App {
                             .on_hover_text("Ported from the Scarlett build: VICTORY_PLANE_NOW and VICTORY_DSTORAGE_WORKERS=physical. Turn off to compare.")
                             .changed();
                         changed |= ui
-                            .checkbox(&mut self.cfg.cut_hold, "Wait at scene changes until the scene has loaded (from Scarlett)")
+                            .checkbox(&mut self.cfg.rt.cut_hold, "Wait at scene changes until the scene has loaded (from Scarlett; can freeze for seconds in the open world)")
                             .on_hover_text("At a camera cut the game waits (up to 3 s) for its reads and pipelines instead of showing black ground and missing objects")
                             .changed();
                         changed |= ui

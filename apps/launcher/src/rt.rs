@@ -190,7 +190,7 @@ pub fn play_command(exe: &Path, cfg: &Config) -> Result<Command, String> {
     cmd.env("VICTORY_DATA_DIR", config::saves_dir());
     // Plain log lines: the colour codes it writes otherwise hid the frame-rate lines from the launcher.
     cmd.env("NO_COLOR", "1");
-    cmd.arg("play").arg(crate::game::game_exe(game_dir)).args(args(&cfg.rt, cfg.rt.series_s, cfg.kbm, cfg.cut_hold));
+    cmd.arg("play").arg(crate::game::game_exe(game_dir)).args(args(&cfg.rt, cfg.rt.series_s, cfg.kbm, cfg.rt.cut_hold));
     if let Some(dir) = exe.parent() {
         cmd.current_dir(dir);
     }

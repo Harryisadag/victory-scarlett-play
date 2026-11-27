@@ -53,6 +53,10 @@ pub struct RtSettings {
     /// Fixes ported from the Scarlett build (engine-rt): depth planes given their twin before use
     /// (`VICTORY_PLANE_NOW`), storage workers per physical core (`VICTORY_DSTORAGE_WORKERS=physical`).
     pub scarlett_fixes: bool,
+    /// The title waits at a scene change until the scene has loaded (`VICTORY_CUT_HOLD=wait`). Off by default: in
+    /// the open world (Vice) the streaming bursts it watches come every few seconds, and one session waited 142
+    /// times, 48 s in all, ten of them the full 3 s (2026-11-27).
+    pub cut_hold: bool,
 }
 
 impl Default for RtSettings {
@@ -72,6 +76,7 @@ impl Default for RtSettings {
             series_s: false,
             light: "both".into(),
             scarlett_fixes: true,
+            cut_hold: false,
         }
     }
 }
