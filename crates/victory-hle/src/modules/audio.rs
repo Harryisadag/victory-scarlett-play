@@ -682,6 +682,33 @@ fn dump_input(index: u32, context: Context) {
     let _ = std::fs::write(dir.join(format!("{n:02}-{index}.xma")), input.unwrap_or_default());
 }
 
+/// `VICTORY_AUDIO_PRIORITY=1` (off by default): the decoding thread runs at
+/// the highest normal priority and in the system's "Pro Audio" scheduling
+/// class (MMCSS), as audio programs' mixing threads do. Without it, on an
+/// 8-core PC busy with the title's threads and ours (recording, refreshes,
+/// landing, storage workers), it was kept waiting long enough for the title's
+/// rings to run dry: the sound crackled and broke up in heavy scenes (a
+/// player's report from the first mission, 2026-11-27). Its work is small (a
+/// 256-byte block lasts 2.7 ms), so being first costs the others little.
+fn decoder_priority() {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Threading::{
+            AvSetMmThreadCharacteristicsW, GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_HIGHEST,
+        };
+        if !std::env::var_os("VICTORY_AUDIO_PRIORITY").is_some_and(|v| v == "1") {
+            return;
+        }
+        let task: Vec<u16> = "Pro Audio".encode_utf16().chain([0]).collect();
+        let mut index = 0u32;
+        // SAFETY: a NUL-terminated task name and an out index; on this thread.
+        let mmcss = !unsafe { AvSetMmThreadCharacteristicsW(task.as_ptr(), &mut index) }.is_null();
+        // SAFETY: this thread's own pseudo handle.
+        let raised = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST) } != 0;
+        tracing::info!(mmcss, raised, "XMA decoder thread: Pro Audio class and the highest priority (VICTORY_AUDIO_PRIORITY=1)");
+    }
+}
+
 /// Starts the decoding thread on the first enabled voice, and has it fill
 /// rings now: a voice just enabled or read from.
 fn wake_decoder() {
@@ -691,6 +718,7 @@ fn wake_decoder() {
             std::thread::Builder::new()
                 .name("victory XMA decoder".into())
                 .spawn(|| {
+                    decoder_priority();
                     loop {
                         xma().pump();
                         // A 256-byte output block lasts 2.7 ms at 48 kHz mono.
