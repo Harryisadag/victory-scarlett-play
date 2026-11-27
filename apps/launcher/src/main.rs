@@ -374,40 +374,8 @@ impl eframe::App for App {
                     let auto = presets::pick(&self.hw);
                     let current = presets::chosen(&self.cfg, &self.hw);
                     let mut changed = false;
-                    egui::ComboBox::from_label("Preset")
-                        .selected_text(if self.cfg.preset.is_none() { format!("Automatic: {}", auto.label) } else { current.label.to_owned() })
-                        .show_ui(ui, |ui| {
-                            changed |= ui.selectable_value(&mut self.cfg.preset, None, format!("Automatic: {}", auto.label)).changed();
-                            for p in presets::ALL {
-                                changed |= ui
-                                    .selectable_value(&mut self.cfg.preset, Some(p.name.to_owned()), format!("{}{}", p.label, if p.tested { "" } else { " (untested)" }))
-                                    .changed();
-                            }
-                        });
-                    ui.label(RichText::new(current.about).small().weak());
-                    ui.horizontal(|ui| {
-                        ui.label("Lighting:");
-                        changed |= ui.radio_value(&mut self.cfg.lighting, Lighting::Fast, "Fast").on_hover_text("No ray tracing: fastest, shadows can be very dark").changed();
-                        changed |= ui.radio_value(&mut self.cfg.lighting, Lighting::Balanced, "Balanced").on_hover_text("No ray tracing, a fill light in the shadows: same speed, an approximation").changed();
-                        changed |= ui.radio_value(&mut self.cfg.lighting, Lighting::RayTraced, "Ray traced").on_hover_text("The game's own ray tracing: right lighting, much slower").changed();
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Console mode:");
-                        let preset_console = current.console;
-                        changed |= ui
-                            .radio_value(&mut self.cfg.console, None, format!("Automatic ({})", if preset_console == "series-s" { "Series S" } else { "Series X" }))
-                            .changed();
-                        changed |= ui
-                            .radio_value(&mut self.cfg.console, Some("series-x".into()), "Series X")
-                            .on_hover_text("Full resolution (the game renders at 1440p and upscales)")
-                            .changed();
-                        changed |= ui
-                            .radio_value(&mut self.cfg.console, Some("series-s".into()), "Series S")
-                            .on_hover_text("Lower resolution and smaller memory budgets: easier on the graphics card and VRAM; does little for a slow CPU")
-                            .changed();
-                    });
                     changed |= ui
-                        .checkbox(&mut self.cfg.cut_hold, "Hold the picture at scene changes until the scene has loaded (experimental)")
+                        .checkbox(&mut self.cfg.cut_hold, "Hold the picture at scene changes until the scene has loaded")
                         .on_hover_text("After a camera cut the last picture stays up to 0.8 s while the new scene streams in, instead of showing black ground and missing textures")
                         .changed();
                     changed |= ui.checkbox(&mut self.cfg.hooks, "Faster memory hooks (10-15 ms a frame less; a few small textures may flicker)").changed();
@@ -422,6 +390,40 @@ impl eframe::App for App {
                         }
                     }
                     changed |= ui.checkbox(&mut self.cfg.check_updates, "Check for updates at start").changed();
+                    egui::CollapsingHeader::new("Advanced").default_open(false).show(ui, |ui| {
+                        egui::ComboBox::from_label("Preset")
+                            .selected_text(if self.cfg.preset.is_none() { format!("Automatic: {}", auto.label) } else { current.label.to_owned() })
+                            .show_ui(ui, |ui| {
+                                changed |= ui.selectable_value(&mut self.cfg.preset, None, format!("Automatic: {}", auto.label)).changed();
+                                for p in presets::ALL {
+                                    changed |= ui
+                                        .selectable_value(&mut self.cfg.preset, Some(p.name.to_owned()), format!("{}{}", p.label, if p.tested { "" } else { " (untested)" }))
+                                        .changed();
+                                }
+                            });
+                        ui.label(RichText::new(current.about).small().weak());
+                        ui.horizontal(|ui| {
+                            ui.label("Lighting:");
+                            changed |= ui.radio_value(&mut self.cfg.lighting, Lighting::Fast, "Standard").on_hover_text("The game's lighting without ray tracing (recommended)").changed();
+                            changed |= ui.radio_value(&mut self.cfg.lighting, Lighting::Balanced, "Brighter shadows").on_hover_text("Adds a fill light where shadows come out too dark: same speed, an approximation").changed();
+                            changed |= ui.radio_value(&mut self.cfg.lighting, Lighting::RayTraced, "Ray traced").on_hover_text("The game's own ray tracing: right lighting, much slower").changed();
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Console mode:");
+                            let preset_console = current.console;
+                            changed |= ui
+                                .radio_value(&mut self.cfg.console, None, format!("Automatic ({})", if preset_console == "series-s" { "Series S" } else { "Series X" }))
+                                .changed();
+                            changed |= ui
+                                .radio_value(&mut self.cfg.console, Some("series-x".into()), "Series X")
+                                .on_hover_text("Full resolution (the game renders at 1440p and upscales)")
+                                .changed();
+                            changed |= ui
+                                .radio_value(&mut self.cfg.console, Some("series-s".into()), "Series S")
+                                .on_hover_text("Lower resolution and smaller memory budgets: easier on the graphics card and VRAM; does little for a slow CPU")
+                                .changed();
+                        });
+                    });
                     if changed {
                         self.cfg.save();
                     }
