@@ -105,6 +105,15 @@ $set = [ordered]@{
     # Every pipeline the title creates is kept in the cache folder, so that `victory warm --used` (below) can have
     # the driver compile them before the next start instead of at a draw's first use (pop-in on a first visit)
     VICTORY_PIPELINE_BOOK = '1'
+
+    # Freezes: the views of the title's batch page-mapping copies are mapped only when touched
+    VICTORY_SOFT_VIEWS = 'copies'
+
+    # Picture: pipelines with static samplers are made each run, not loaded from the saved library
+    VICTORY_SAMPLERS_MADE = '1'
+
+    # Draw set-up: only the table slots a program can read; texture-queue notes that change nothing skip its lock
+    VICTORY_TABLE_NAMED_ONLY = '1'; VICTORY_QUEUE_MARKS = '1'
 }
 if ($Hooks -and -not $NoHooks) {
     # The memory hooks
