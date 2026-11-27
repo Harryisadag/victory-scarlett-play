@@ -335,7 +335,12 @@ fn main() -> Result<()> {
         Command::Preload { paths } => {
             play::explain_preload();
             translate::precompile(paths, None)?;
-            warm::run(None, None, false, false, None)?;
+            // `VICTORY_PRELOAD_USED=1` (off by default; the launcher sets it): only the pipelines earlier runs drew
+            // with (`early-pipelines.txt`), not every one the title ever created. On a PC with a few hours played:
+            // 3,395 of 88,657, the difference between a couple of minutes and 40-50 (2026-11-27). The others are
+            // made when first drawn, as without a preload.
+            let used = std::env::var_os("VICTORY_PRELOAD_USED").is_some_and(|v| v == "1");
+            warm::run(None, None, false, used, None)?;
             warm::into_library(None)
         }
         #[cfg(windows)]
