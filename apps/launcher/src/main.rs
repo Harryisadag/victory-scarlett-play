@@ -186,7 +186,7 @@ impl App {
                     }
                     self.note = Some((false, step));
                     if let Some(session) = session
-                        && self.cfg.reports == Some(true)
+                        && self.cfg.reports != Some(false)
                         && report::available()
                         && session.minutes >= 1.0
                     {
@@ -276,24 +276,25 @@ impl App {
         if self.cfg.reports.is_some() || !report::available() {
             return;
         }
-        egui::Window::new("Help improve it?")
+        // Reports are on by default (the player has not turned them off); this notice says so once.
+        egui::Window::new("Reports are on")
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.set_max_width(460.0);
-                ui.label("After each session the launcher can send a short report to the developer, so the settings for PCs like yours can be improved.");
+                ui.label("After each session the launcher sends a short report to the developer, so the settings for PCs like yours can be improved.");
                 ui.add_space(6.0);
                 ui.label(RichText::new(report::WHAT).small());
                 ui.add_space(6.0);
                 ui.checkbox(&mut self.cfg.report_screenshots, "Include up to 4 small screenshots");
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Yes, send reports").clicked() {
+                    if ui.button("OK").clicked() {
                         self.cfg.reports = Some(true);
                         self.cfg.save();
                     }
-                    if ui.button("No thanks").clicked() {
+                    if ui.button("Turn reports off").clicked() {
                         self.cfg.reports = Some(false);
                         self.cfg.save();
                     }
@@ -391,7 +392,7 @@ impl eframe::App for App {
                     });
                     changed |= ui.checkbox(&mut self.cfg.hooks, "Faster memory hooks (10-15 ms a frame less; a few small textures may flicker)").changed();
                     if report::available() {
-                        let mut on = self.cfg.reports == Some(true);
+                        let mut on = self.cfg.reports != Some(false);
                         if ui.checkbox(&mut on, "Send a report after each session (hardware, fps, crash logs)").changed() {
                             self.cfg.reports = Some(on);
                             changed = true;
@@ -431,7 +432,7 @@ impl eframe::App for App {
                     {
                         self.note = None;
                         let refresh = !setup_done;
-                        self.job = Some((JobKind::Play, jobs::play(exe, self.cfg.clone(), self.hw.clone(), refresh, self.cfg.report_screenshots && self.cfg.reports == Some(true))));
+                        self.job = Some((JobKind::Play, jobs::play(exe, self.cfg.clone(), self.hw.clone(), refresh, self.cfg.report_screenshots && self.cfg.reports != Some(false))));
                     }
                 });
 

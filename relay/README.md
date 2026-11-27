@@ -23,4 +23,4 @@ as a secret inside the Worker; the public launcher knows only the Worker's addre
 6. Put the Worker's address in `apps/launcher/src/report.rs` (`RELAY`), or set `VSP_RELAY` when building.
 
 Limits: 4 MB a report, at most 4 JPEG screenshots of 700 KB, 60 KB of log, 6 reports a minute per address and per
-install. Reports are sent only if the player said yes on the launcher's first start.
+install. Reports are on by default; the launcher says so on its first start and the player can turn them off there or in Settings.

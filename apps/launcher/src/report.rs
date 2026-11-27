@@ -1,6 +1,7 @@
-//! Opt-in reports after a session: hardware, performance, the end of the log on a failure, a few small screenshots.
-//! Sent to the report relay (`relay/`), which forwards them to the developer's private Discord channel. Nothing is
-//! sent unless the player said yes on the first start (and they can turn it off in Settings).
+//! Reports after a session: hardware, performance, the end of the log on a failure, a few small screenshots.
+//! Sent to the report relay (`relay/`), which forwards them to the developer's private Discord channel. On by
+//! default; a notice on the first start says so, and the player can turn them off there or in Settings, after which
+//! nothing is sent.
 
 use crate::config::Config;
 use crate::hardware::Hardware;

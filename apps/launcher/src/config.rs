@@ -23,7 +23,7 @@ pub struct Config {
     pub lighting: Lighting,
     /// Scarlett's memory hooks (faster; a few small textures can show old contents for a moment).
     pub hooks: bool,
-    /// `None`: not asked yet.
+    /// `None`: not answered yet - reports are on by default (the first-start notice says so); `Some(false)`: off.
     pub reports: Option<bool>,
     pub report_screenshots: bool,
     /// Random id of this install (no personal data): lets reports from one PC be told apart.
