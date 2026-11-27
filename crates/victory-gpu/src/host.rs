@@ -998,6 +998,9 @@ fn create() -> windows::core::Result<Host> {
             .and_then(|factory| factory.EnumAdapterByLuid::<IDXGIAdapter3>(device.GetAdapterLuid()))
             .ok();
         tracing::info!("host D3D12 device ready");
+        // Low memory for the structure builder's arenas, reserved before the title spreads (trustno1; only with the
+        // builder, VICTORY_LOW_EARLY_MB).
+        crate::upload::reserve_early();
         Ok(Host {
             device,
             queue,
