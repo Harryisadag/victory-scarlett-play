@@ -323,3 +323,67 @@ mod tests {
         assert_eq!((avg, low, heavy), (15.0, 10.0, 10.0));
     }
 }
+
+/// A running process whose executable is `exe` (other than `except`): the layer started again by itself (F1's
+/// "save and restart", a preload's restart). Its id.
+pub fn find_process(exe: &Path, except: u32) -> Option<u32> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::ProcessStatus::EnumProcesses;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
+    let want = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+    let mut ids = vec![0u32; 4096];
+    let mut got = 0u32;
+    // SAFETY: a buffer and its size in bytes; `got` receives the bytes written.
+    if unsafe { EnumProcesses(ids.as_mut_ptr(), (ids.len() * 4) as u32, &mut got) } == 0 {
+        return None;
+    }
+    ids.truncate(got as usize / 4);
+    ids.into_iter().filter(|&pid| pid != 0 && pid != except).find(|&pid| {
+        // SAFETY: a query-only handle, closed below.
+        let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if h.is_null() {
+            return false;
+        }
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        // SAFETY: the handle above; a buffer and its length in characters.
+        let ok = unsafe { QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) } != 0;
+        // SAFETY: the handle above.
+        unsafe { CloseHandle(h) };
+        ok && {
+            let path = PathBuf::from(String::from_utf16_lossy(&buf[..len as usize]));
+            std::fs::canonicalize(&path).unwrap_or(path) == want
+        }
+    })
+}
+
+/// Whether process `pid` is still running.
+pub fn alive(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    // SAFETY: a query-only handle, closed below; an out code.
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return false;
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(h, &mut code) != 0;
+        CloseHandle(h);
+        ok && code == STILL_ACTIVE as u32
+    }
+}
+
+/// Ends process `pid` (Stop the game, for a game that restarted itself).
+pub fn end(pid: u32) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
+    // SAFETY: a terminate-only handle, closed below.
+    unsafe {
+        let h = OpenProcess(PROCESS_TERMINATE, 0, pid);
+        if !h.is_null() {
+            TerminateProcess(h, 1);
+            CloseHandle(h);
+        }
+    }
+}

@@ -183,6 +183,8 @@ pub fn args(rt: &RtSettings, series_s: bool, mouse: bool, cut_hold: bool) -> Vec
     // menu, a long pipeline compile): patched out, only where the bytes of v1.0.2.1 match (engine-rt, from the
     // Scarlett build / megafork 382c129d).
     set("VICTORY_NO_WATCHDOG", "1");
+    // The layer's own warm-up restart (trustno1 10862a6d) is the launcher's (jobs::play), which keeps the game it watches.
+    set("VICTORY_WARMUP_RESTART", "0");
     // The audio decoding thread first in line (engine-rt): sound broke up in heavy scenes on an 8-core PC.
     set("VICTORY_AUDIO_PRIORITY", "1");
     if rt.scarlett_fixes {

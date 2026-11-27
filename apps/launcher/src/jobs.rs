@@ -277,21 +277,79 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
         };
         let watch = Arc::new(Mutex::new(Watch::default()));
         let stamp = started_at.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let log = config::logs_dir().join(format!("game-{stamp}.log"));
+        let mut log = config::logs_dir().join(format!("game-{stamp}.log"));
         let mut child = game::spawn_logged(cmd, log.clone(), watch.clone(), None).map_err(|e| format!("could not start the game: {e}"))?;
         let started = Instant::now();
+        // (NVIDIA-RT) The first start of a new build of the layer stays at about 14 fps for the whole session and
+        // runs normally from the second start on (trustno1-coder 10862a6d): it is played 20 s after its first
+        // frame, ended and started again, once per build. Done here, not by the layer itself
+        // (VICTORY_WARMUP_RESTART=0), so the launcher keeps the game it watches.
+        let warm_mark = config::home().join("warmed-rt").join(game::build_stamp(&exe));
+        let mut warm_from: Option<Instant> = None;
+        let mut warming = rt && !warm_mark.exists();
+        // A game the layer started again by itself (F1's "save and restart"): followed by its process id.
+        let mut restarted: Option<u32> = None;
         let mut next_shot = Duration::from_secs(4 * 60);
         // Windows remembers an app's mute, and a setup recording that ended without unmuting (the game crashed)
         // leaves victory.exe muted: every Play unmutes the game's audio once it has opened (within its first minute).
         let marker = config::home().join("recording-muted");
         let mut unmute_left = 60;
         let code = loop {
+            if let Some(pid) = restarted {
+                if cancel.load(Ordering::Relaxed) {
+                    game::end(pid);
+                }
+                if !game::alive(pid) {
+                    break None;
+                }
+                say(s, "Playing", &format!("{:.0} min · the game started itself again (F1) · no frame figures from here", started.elapsed().as_secs() / 60), -1.0);
+                std::thread::sleep(Duration::from_millis(1000));
+                continue;
+            }
             if let Some(code) = child.try_wait().map_err(|e| e.to_string())? {
+                // The layer may have started itself again (F1's save and restart): follow that one.
+                if rt {
+                    let mut again = None;
+                    for _ in 0..10 {
+                        again = game::find_process(&exe, child.id());
+                        if again.is_some() {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(500));
+                    }
+                    if let Some(pid) = again {
+                        restarted = Some(pid);
+                        continue;
+                    }
+                }
                 break Some(code);
             }
             if cancel.load(Ordering::Relaxed) {
                 let _ = child.kill();
                 break child.wait().ok();
+            }
+            if warming {
+                let drawing = watch.lock().unwrap().samples.iter().any(|x| x.draws > 0.0);
+                if warm_from.is_none() && drawing {
+                    warm_from = Some(Instant::now());
+                }
+                if warm_from.is_some_and(|t| t.elapsed() >= Duration::from_secs(20)) {
+                    warming = false;
+                    say(s, "First start of this version: starting the game again once", "a new version's first run otherwise stays slow", -1.0);
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    if let Some(dir) = warm_mark.parent() {
+                        let _ = std::fs::create_dir_all(dir);
+                    }
+                    let _ = std::fs::write(&warm_mark, "warmed\r\n");
+                    let cmd = crate::rt::play_command(&exe, &cfg)?;
+                    log = config::logs_dir().join(format!("game-{stamp}-2.log"));
+                    // What the warm-up measured is not the session's.
+                    *watch.lock().unwrap() = Watch::default();
+                    child = game::spawn_logged(cmd, log.clone(), watch.clone(), None).map_err(|e| format!("could not start the game again: {e}"))?;
+                    unmute_left = 60;
+                    continue;
+                }
             }
             if unmute_left > 0 {
                 unmute_left -= 1;
@@ -321,6 +379,7 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
                 s,
                 "Playing",
                 &match last {
+                    Some(l) if warming => format!("first start of this version: it starts again by itself once, 20 s in · now {:.0} fps", l.fps),
                     Some(l) => format!("{:.0} min · now {:.0} fps at {:.0} draws · average {:.1} fps · {:.1} GB", started.elapsed().as_secs() / 60, l.fps, l.draws, avg, mem),
                     // Before the first frame: the layer's last line (a preload's progress, the start's steps).
                     None => format!(
