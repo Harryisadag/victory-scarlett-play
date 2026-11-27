@@ -258,6 +258,8 @@ thread_local! {
     /// (Fox T, foxhound 7fa0e95) Whether the pipeline this thread makes has
     /// static samplers ([`with_static_samplers`]).
     static STATIC_SAMPLERS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// (victory-scarlett-play) Whether `VICTORY_SAMPLERS_MADE` has it made every run ([`samplers_fresh`]).
+    static SAMPLERS_FRESH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// (Fox T, port of foxhound 7fa0e95) The pipelines this thread makes while
@@ -275,23 +277,59 @@ thread_local! {
 /// posterized light (bands); made in the run, smooth.
 /// shortcut: such pipelines are compiled every run (the driver's own cache
 /// keeps that quick).
-pub(crate) fn with_static_samplers(samplers: bool) -> StaticSamplers {
-    StaticSamplers(STATIC_SAMPLERS.replace(samplers))
+///
+/// (victory-scarlett-play) `VICTORY_SAMPLERS_MADE=<name>,<name>...`: only the pipelines whose shaders hold one of
+/// those program names are made every run; the others load from the library as before. Making all of them (=1)
+/// costs about 1,150 compiles a launch, minutes of pending pipelines and late scenes on an 8-core CPU, for a defect
+/// seen in one program (PS_CompositeNMB, the colour grading).
+pub(crate) fn with_static_samplers(samplers: bool, shaders: &[std::sync::Arc<super::Shader>]) -> StaticSamplers {
+    let fresh = samplers && samplers_fresh(shaders);
+    StaticSamplers(STATIC_SAMPLERS.replace(samplers), SAMPLERS_FRESH.replace(fresh))
 }
 
-/// See [`with_static_samplers`]; the setting before it comes back on drop.
-pub(crate) struct StaticSamplers(bool);
+/// See [`with_static_samplers`]; the settings before it come back on drop.
+pub(crate) struct StaticSamplers(bool, bool);
 
 impl Drop for StaticSamplers {
     fn drop(&mut self) {
         STATIC_SAMPLERS.set(self.0);
+        SAMPLERS_FRESH.set(self.1);
     }
 }
 
-/// `VICTORY_SAMPLERS_MADE=1`: see [`with_static_samplers`].
+enum SamplersMade {
+    Off,
+    All,
+    Names(Vec<Vec<u8>>),
+}
+
+/// `VICTORY_SAMPLERS_MADE`: unset or 0 off, 1 every pipeline with static samplers, else a comma list of names.
+fn samplers_mode() -> &'static SamplersMade {
+    static MODE: OnceLock<SamplersMade> = OnceLock::new();
+    MODE.get_or_init(|| match std::env::var("VICTORY_SAMPLERS_MADE").as_deref().map(str::trim) {
+        Err(_) | Ok("") | Ok("0") => SamplersMade::Off,
+        Ok("1") => SamplersMade::All,
+        Ok(list) => {
+            let names: Vec<Vec<u8>> = list.split(',').map(str::trim).filter(|n| !n.is_empty()).map(|n| n.as_bytes().to_vec()).collect();
+            tracing::info!(names = list, "pipelines with static samplers made every run: only these programs (VICTORY_SAMPLERS_MADE)");
+            SamplersMade::Names(names)
+        }
+    })
+}
+
 fn samplers_made() -> bool {
-    static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("VICTORY_SAMPLERS_MADE").is_some_and(|v| v == "1"))
+    !matches!(samplers_mode(), SamplersMade::Off)
+}
+
+/// Whether a pipeline of `shaders` with static samplers is made every run instead of loaded.
+fn samplers_fresh(shaders: &[std::sync::Arc<super::Shader>]) -> bool {
+    match samplers_mode() {
+        SamplersMade::Off => false,
+        SamplersMade::All => true,
+        SamplersMade::Names(names) => names
+            .iter()
+            .any(|n| shaders.iter().any(|s| s.container.windows(n.len()).any(|w| w == n.as_slice()))),
+    }
 }
 
 /// Pipelines with static samplers: loaded from the library (each one may read
@@ -579,10 +617,11 @@ pub(crate) fn pipeline(
 ) -> windows::core::Result<ID3D12PipelineState> {
     let wide = HSTRING::from(name);
     let samplers = STATIC_SAMPLERS.get();
-    let Some(library) = library().filter(|_| !(samplers && samplers_made())) else {
+    let fresh = SAMPLERS_FRESH.get();
+    let Some(library) = library().filter(|_| !fresh) else {
         MADE.fetch_add(1, Ordering::Relaxed);
         if samplers {
-            WITH_SAMPLERS[if samplers_made() { 2 } else { 1 }].fetch_add(1, Ordering::Relaxed);
+            WITH_SAMPLERS[if fresh { 2 } else { 1 }].fetch_add(1, Ordering::Relaxed);
         }
         return create();
     };

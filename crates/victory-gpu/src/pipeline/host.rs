@@ -682,7 +682,7 @@ impl HostPipeline {
         };
         // (Fox T, `VICTORY_SAMPLERS_MADE`) Whether it has static samplers
         // (`library::with_static_samplers`).
-        let _samplers = super::library::with_static_samplers(!samplers.is_empty());
+        let _samplers = super::library::with_static_samplers(!samplers.is_empty(), shaders);
         let code = |i: usize| {
             stages.get(i).and_then(|(s, _)| s.translated()).map_or(
                 D3D12_SHADER_BYTECODE::default(),

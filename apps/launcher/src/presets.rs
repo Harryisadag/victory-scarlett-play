@@ -109,7 +109,9 @@ const BASE: &[(&str, &str)] = &[
     // with a freeze 10-12 -> 3), static-sampler pipelines compiled each run instead of loaded from the library
     // (wrong light or faces in some runs), table slots a program can read only, texture-queue marks.
     ("VICTORY_SOFT_VIEWS", "copies"),
-    ("VICTORY_SAMPLERS_MADE", "1"),
+    // Only the colour grading (the one program Scarlett saw sample through another run's samplers) is compiled every
+    // run; =1 compiled all ~1,150 pipelines with static samplers every launch: minutes of late scenes on an 8-core CPU.
+    ("VICTORY_SAMPLERS_MADE", "CompositeNMB"),
     ("VICTORY_TABLE_NAMED_ONLY", "1"),
     ("VICTORY_QUEUE_MARKS", "1"),
 ];
