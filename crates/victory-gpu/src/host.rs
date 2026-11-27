@@ -1240,6 +1240,8 @@ pub(crate) struct HostList {
     /// What the list does with depth textures that have a colour twin, by
     /// twin ([`TwinUse`]).
     twins: Mutex<std::collections::HashMap<usize, TwinUse>>,
+    /// Depth planes used before their pass (`VICTORY_PLANE_NOW`, from the Scarlett build).
+    plane_late: Mutex<Vec<(std::sync::Arc<crate::resource::HostTexture>, std::sync::Arc<crate::resource::Twin>)>>,
     /// The list that runs those transitions just before this one, made
     /// when the list first has such transitions ([`lazy_prelude`]).
     prelude: OnceLock<Option<Prelude>>,
@@ -4361,6 +4363,7 @@ impl Host {
                 scratch: Mutex::default(),
                 states: Mutex::default(),
                 twins: Mutex::default(),
+                plane_late: Mutex::default(),
                 prelude,
                 pipelines,
                 #[cfg(feature = "diagnostics")]
@@ -6978,8 +6981,14 @@ impl HostList {
         // the plane as it was; the pass runs when the list closes
         // (`twins_to_depth`). Counted.
         if copy && !colour && twin.plane.is_some() {
-            u.late = true;
             crate::resource::PLANES[2].fetch_add(1, Ordering::Relaxed);
+            self.plane_late.lock().unwrap_or_else(|e| e.into_inner()).push((depth.clone(), twin.clone()));
+            // (`VICTORY_PLANE_NOW`, from the Scarlett build) The pass is
+            // recorded before the draw that uses the plane (`crate::draw`),
+            // not when the list closes.
+            if !plane_now() {
+                u.late = true;
+            }
         }
         drop(twins);
         if copy {
@@ -6992,6 +7001,23 @@ impl HostList {
             self.settle(plane, UNORDERED_ACCESS);
         }
         true
+    }
+
+    /// The depth planes used before their pass since the last call.
+    pub(crate) fn take_plane_late(&self) -> Vec<(std::sync::Arc<crate::resource::HostTexture>, std::sync::Arc<crate::resource::Twin>)> {
+        let mut late = self.plane_late.lock().unwrap_or_else(|e| e.into_inner());
+        if late.is_empty() { Vec::new() } else { std::mem::take(&mut *late) }
+    }
+
+    /// (`VICTORY_PLANE_NOW=1`) Records now the pass that draws each plane's
+    /// twin into the plane (`pass_plane`), which before ran when the list
+    /// closed: the caller sets the title's state on the list again
+    /// (`crate::draw::State::replay`) and binds anew before its draw.
+    pub(crate) fn planes_now(&self, late: &[(std::sync::Arc<crate::resource::HostTexture>, std::sync::Arc<crate::resource::Twin>)]) {
+        for (depth, twin) in late {
+            self.pass_plane(depth, twin);
+        }
+        self.changed_something();
     }
 
     /// Records the pass that draws the twin of the depth plane of `depth`
@@ -12112,3 +12138,14 @@ mod batch {   // Batch::texture_due lives here; `mod tests` is already taken at 
     }
 }
 
+
+/// `VICTORY_PLANE_NOW=1` (default off; from the Scarlett build, "Fox T"): a
+/// depth plane whose twin a list wrote is given the twin's contents
+/// (`HostList::pass_plane`) before the draw or dispatch that next uses it, not
+/// when the list closes: such a use read the plane as it was (tiled lighting's
+/// class plane, tested depth-equal: about 0.84 uses a frame in the Scarlett
+/// build's run-231).
+pub(crate) fn plane_now() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_PLANE_NOW").is_some_and(|v| v == "1"))
+}

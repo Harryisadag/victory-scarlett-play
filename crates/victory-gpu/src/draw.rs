@@ -1781,7 +1781,31 @@ impl State {
     }
 
     /// As [`State::prepare`], for draws (`mesh` false) or mesh dispatches.
+    /// As [`State::prepare_for_once`], with a depth plane used before its pass
+    /// given its twin's contents first (`VICTORY_PLANE_NOW`).
     fn prepare_for(&mut self, list: &HostList, indexed: bool, mesh: bool) -> bool {
+        let done = self.prepare_for_once(list, indexed, mesh);
+        if done && self.planes_due(list) {
+            return self.prepare_for_once(list, indexed, mesh);
+        }
+        done
+    }
+
+    /// (`VICTORY_PLANE_NOW`, from the Scarlett build) After a bind: depth
+    /// planes this draw or dispatch uses before their pass. With the switch on
+    /// the pass is recorded now and the title's state set again: true then,
+    /// and the caller binds anew.
+    fn planes_due(&mut self, list: &HostList) -> bool {
+        let late = list.take_plane_late();
+        if late.is_empty() || !crate::host::plane_now() {
+            return false;
+        }
+        list.planes_now(&late);
+        self.replay(list);
+        true
+    }
+
+    fn prepare_for_once(&mut self, list: &HostList, indexed: bool, mesh: bool) -> bool {
         #[cfg(feature = "diagnostics")]
         if crate::pipeline::is_skipped(self.pipeline as This) {
             return false;
@@ -3800,7 +3824,7 @@ impl State {
             return;
         }
         let timed = timed.map(|began| crate::memory::builder_time(0, began));
-        if !self.bind(list, p, true) {
+        if !self.bind(list, p, true) || (self.planes_due(list) && !self.bind(list, p, true)) {
             DROPPED.fetch_add(1, Ordering::Relaxed);
             // A stage of the structure builder that cannot be bound is a
             // dropped stage: the others stop too.
@@ -5638,7 +5662,7 @@ impl State {
             let ran = match kind {
                 DRAW | INDEXED => self.prepare(list, kind == INDEXED),
                 MESH => self.prepare_for(list, false, true),
-                DISPATCH => self.bind(list, p, true),
+                DISPATCH => self.bind(list, p, true) && (!self.planes_due(list) || self.bind(list, p, true)),
                 _ => false,
             };
             if !ran {
