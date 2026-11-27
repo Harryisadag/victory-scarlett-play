@@ -7208,8 +7208,9 @@ impl HostList {
             let key = std::sync::Arc::as_ptr(copy) as usize;
             // A texture cut from a block may lie where another did: what the
             // card holds of that one is done with before the first upload
-            // into this one.
-            if crate::pool::on() && *first_upload {
+            // into this one (aliasing barriers are invalid on committed
+            // resources).
+            if copy.aliased && *first_upload && !copying.contains_key(&key) {
                 aliasing.push(D3D12_RESOURCE_BARRIER {
                     Type: D3D12_RESOURCE_BARRIER_TYPE_ALIASING,
                     Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
@@ -7271,7 +7272,14 @@ impl HostList {
             })
         };
         if let Err(e) = recorded {
-            fail(format_args!("a host state prelude did not record ({e})"));
+            fail(format_args!(
+                "a host state prelude did not record ({e}; aliasing={}, to_copy={}, syncs={}, uploads={}, barriers={})",
+                aliasing.len(),
+                to_copy.len(),
+                syncs.len(),
+                uploads.len(),
+                barriers.len()
+            ));
         }
         list.cast().ok()
     }

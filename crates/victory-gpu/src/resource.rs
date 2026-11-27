@@ -574,14 +574,14 @@ fn twin_texture(
             crate::host::name(&texture, || {
                 format!("depth plane twin {}x{} f{}", d.width, d.height, d.format)
             });
-            std::sync::Arc::new(HostTexture::new(texture, UNORDERED_ACCESS))
+            std::sync::Arc::new(HostTexture::new(texture, UNORDERED_ACCESS, false))
         })
     } else {
         None
     };
     TWINS[0].fetch_add(1, Relaxed);
     Some(std::sync::Arc::new(Twin {
-        colour: std::sync::Arc::new(HostTexture::new(texture, UNORDERED_ACCESS)),
+        colour: std::sync::Arc::new(HostTexture::new(texture, UNORDERED_ACCESS, false)),
         behind: std::sync::atomic::AtomicU32::new(0),
         through,
         plane,
@@ -1260,6 +1260,9 @@ pub(crate) struct HostTexture {
     /// The texture's flags (asked once: the runtime takes 100 ns to say, and
     /// every texture of every draw is asked about).
     flags: u32,
+    /// Whether the texture is placed in a pool heap or reserved (not committed):
+    /// D3D12 aliasing barriers are only valid on placed/reserved resources.
+    pub(crate) aliased: bool,
 }
 
 /// What a host copy was filled with last: the first level of it and the
@@ -1741,7 +1744,11 @@ fn hosted(this: This, make: bool) -> Option<Made> {
                 && (!crate::texture::committed(r.data().cast_const(), bytes as usize)
                     || crate::descriptor::host::next_start(start, start.saturating_add(bytes)).is_some()
                     || crate::descriptor::host::first_viewed(start).is_some_and(|first| first > 0));
-            let reserved = if partly { host_texture_as(&r.desc, r.host.state, clear, true) } else { None };
+            let reserved = if partly {
+                host_texture_as(&r.desc, r.host.state, clear, true).map(|(t, _)| t)
+            } else {
+                None
+            };
             let cut = reserved
                 .as_ref()
                 .zip(crate::host::host())
@@ -1766,11 +1773,10 @@ fn hosted(this: This, make: bool) -> Option<Made> {
                 base = dropped;
             }
         }
-        let texture = match texture {
-            Some(texture) => Some(texture),
+        let Some((texture, aliased)) = (match texture {
+            Some(texture) => Some((texture, true)),
             None => host_texture(&r.desc.from_level(base), r.host.state, clear),
-        };
-        let Some(texture) = texture else {
+        }) else {
             r.host.refused.store(true, Relaxed);
             return None;
         };
@@ -1789,7 +1795,7 @@ fn hosted(this: This, make: bool) -> Option<Made> {
         let state = crate::host::legal_state(&texture, crate::host::texture_state(r.host.state));
         let mut host = match tiled {
             Some(tiled) => HostTexture::new_tiled(texture, state, tiled),
-            None => HostTexture::new(texture, state),
+            None => HostTexture::new(texture, state, aliased),
         };
         host.base = base;
         host.grown.store(r.host.grown.swap(false, Relaxed), Relaxed);
@@ -2565,7 +2571,11 @@ impl HostTexture {
         self.flags
     }
 
-    fn new(texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource, state: u32) -> HostTexture {
+    fn new(
+        texture: windows::Win32::Graphics::Direct3D12::ID3D12Resource,
+        state: u32,
+        aliased: bool,
+    ) -> HostTexture {
         use std::sync::atomic::Ordering::Relaxed;
         let bytes = host_bytes(&texture);
         // SAFETY: a live texture.
@@ -2584,6 +2594,7 @@ impl HostTexture {
             holds: Default::default(),
             ahead: crate::texture::ahead::fresh(),
             flags,
+            aliased,
         }
     }
 
@@ -2609,6 +2620,7 @@ impl HostTexture {
             holds: Default::default(),
             ahead: crate::texture::ahead::fresh(),
             flags,
+            aliased: true,
         }
     }
 }
@@ -2697,7 +2709,7 @@ fn host_texture(
     desc: &ResourceDesc,
     state: u32,
     clear: *const c_void,
-) -> Option<windows::Win32::Graphics::Direct3D12::ID3D12Resource> {
+) -> Option<(windows::Win32::Graphics::Direct3D12::ID3D12Resource, bool)> {
     host_texture_as(desc, state, clear, false)
 }
 
@@ -2709,7 +2721,7 @@ fn host_texture_as(
     state: u32,
     clear: *const c_void,
     reserved: bool,
-) -> Option<windows::Win32::Graphics::Direct3D12::ID3D12Resource> {
+) -> Option<(windows::Win32::Graphics::Direct3D12::ID3D12Resource, bool)> {
     use windows::Win32::Graphics::Direct3D12::*;
     const PC_FLAGS: u32 = 0xf; // render target, depth, UAV, no shader access
     if desc.dimension == BUFFER {
@@ -2782,7 +2794,7 @@ fn host_texture_as(
         crate::host::name(&t, || {
             format!("texture {}x{} f{} flags {:#x} (in a block)", d.width, d.height, d.format, d.flags)
         });
-        return Some(t);
+        return Some((t, true));
     }
     let mut texture: Option<ID3D12Resource> = None;
     let made = if reserved {
@@ -2834,7 +2846,7 @@ fn host_texture_as(
             format!("texture {}x{} f{} flags {:#x}", d.width, d.height, d.format, d.flags)
         });
     }
-    texture
+    texture.map(|t| (t, reserved))
 }
 
 /// The host copy of title texture `this` if it is made and was made
@@ -4934,5 +4946,96 @@ float4 lit() : SV_Target { return 1.0; }
         let d = unsafe { more.texture.GetDesc() };
         assert_eq!((more.base, d.Width, d.MipLevels), (0, 256, 9));
         assert!(more.serial != copy.serial && more.grown.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    /// Regression test: oversized textures fall back to CreateCommittedResource
+    /// (`aliased == false`) instead of pool placement, and D3D12 rejects aliasing
+    /// barriers on committed resources (`E_INVALIDARG` / `0x80070057` at `Close`).
+    #[cfg(windows)]
+    #[test]
+    fn committed_texture_rejects_aliasing_barrier_and_is_marked_non_aliased() {
+        use windows::Win32::Foundation::E_INVALIDARG;
+        use windows::Win32::Graphics::Direct3D12::*;
+
+        let Some(host) = crate::host::host() else {
+            return;
+        };
+
+        let small_desc = ResourceDesc {
+            layout: 0x105,
+            ..texture(256, 256, 98, 1)
+        };
+        let (small, small_aliased) = host_texture(&small_desc, 0, std::ptr::null()).expect("small texture");
+        assert_eq!(small_aliased, crate::pool::on());
+
+        // > 64 MiB RGBA8 mipmapped texture exceeds even the 64 MiB pool block size
+        // (and 16 MiB on <= 8.5 GiB GPUs), forcing CreateCommittedResource.
+        let large_desc = ResourceDesc {
+            layout: 0x105,
+            ..texture(4096, 4096, 28, 2)
+        };
+        let (large, large_aliased) = host_texture(&large_desc, 0, std::ptr::null()).expect("large texture");
+        assert!(!large_aliased, "oversized committed texture must report aliased=false");
+
+        unsafe {
+            let allocator: ID3D12CommandAllocator = host
+                .device
+                .CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT)
+                .unwrap();
+            let list: ID3D12GraphicsCommandList = host
+                .device
+                .CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, &allocator, None)
+                .unwrap();
+
+            let to_copy = crate::host::transition(
+                &large,
+                D3D12_RESOURCE_STATE_COMMON,
+                D3D12_RESOURCE_STATE_COPY_DEST,
+            );
+            list.ResourceBarrier(&[to_copy]);
+            list.Close().expect("committed texture transition without aliasing barrier must close");
+
+            if small_aliased {
+                allocator.Reset().unwrap();
+                list.Reset(&allocator, None).unwrap();
+                let small_aliasing = D3D12_RESOURCE_BARRIER {
+                    Type: D3D12_RESOURCE_BARRIER_TYPE_ALIASING,
+                    Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
+                    Anonymous: D3D12_RESOURCE_BARRIER_0 {
+                        Aliasing: std::mem::ManuallyDrop::new(D3D12_RESOURCE_ALIASING_BARRIER {
+                            pResourceBefore: std::mem::ManuallyDrop::new(None),
+                            pResourceAfter: std::mem::transmute_copy(&small),
+                        }),
+                    },
+                };
+                list.ResourceBarrier(&[small_aliasing]);
+                list.Close().expect("pooled placed texture with aliasing barrier must close");
+            }
+
+            // Record aliasing barrier on committed resource last: once D3D12 rejects
+            // the barrier, the command list stays invalid and cannot be Reset.
+            allocator.Reset().unwrap();
+            list.Reset(&allocator, None).unwrap();
+            let aliasing = D3D12_RESOURCE_BARRIER {
+                Type: D3D12_RESOURCE_BARRIER_TYPE_ALIASING,
+                Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
+                Anonymous: D3D12_RESOURCE_BARRIER_0 {
+                    Aliasing: std::mem::ManuallyDrop::new(D3D12_RESOURCE_ALIASING_BARRIER {
+                        pResourceBefore: std::mem::ManuallyDrop::new(None),
+                        pResourceAfter: std::mem::transmute_copy(&large),
+                    }),
+                },
+            };
+            list.ResourceBarrier(&[aliasing]);
+            let close_committed_aliasing = list.Close();
+            println!("Close() after aliasing barrier on committed resource: {close_committed_aliasing:?}");
+            assert_eq!(
+                close_committed_aliasing.as_ref().map_err(|e| e.code()),
+                Err(E_INVALIDARG),
+                "expected E_INVALIDARG (0x80070057) when issuing aliasing barrier on committed resource"
+            );
+        }
+        drop(large);
+        drop(small);
     }
 }

@@ -913,7 +913,6 @@ pub(crate) fn upload_from(list: &HostList, resource: This, first: u32) {
     let Some(copy) = crate::resource::host_copy(resource) else {
         return;
     };
-    let texture = &copy.texture;
     ahead::listed(&copy);
     let Some(staging) = staging(resource, &copy, first) else {
         return;
@@ -971,7 +970,7 @@ pub(crate) fn upload_from(list: &HostList, resource: This, first: u32) {
             once!("no upload buffer for a CPU-written movie plane");
             return;
         };
-        record_upload(list, resource, texture, &staging, &source, 0);
+        record_upload(list, resource, &copy, &staging, &source, 0);
         staging.uploaded.store(true, Relaxed);
         return;
     }
@@ -1014,7 +1013,7 @@ pub(crate) fn upload_from(list: &HostList, resource: This, first: u32) {
     // (Recorded before the check that detiles it: its zeros now, if it was
     // handed out without them.)
     staging.zero_if_unwritten();
-    record_upload(list, resource, texture, &staging, &staging.buffer, staging.base);
+    record_upload(list, resource, &copy, &staging, &staging.buffer, staging.base);
     // When the list is submitted, its copy takes what the staging buffer
     // holds by then: noted before the check below, which sets `dirty`
     // again if it detiles (the next list then uploads once more).
@@ -1210,16 +1209,18 @@ impl PreludeUpload {
 fn record_upload(
     list: &HostList,
     resource: This,
-    texture: &ID3D12Resource,
+    copy: &crate::resource::HostTexture,
     staging: &Staging,
     source: &ID3D12Resource,
     base: u64,
 ) {
     use std::sync::atomic::Ordering::Relaxed;
     const COPY_DEST: u32 = 0x400;
+    let texture = &copy.texture;
     // A texture cut from a block may lie where another did: what the card
-    // holds of that one is done with before the first upload into this one.
-    if crate::pool::on() && !staging.uploaded.load(Relaxed) {
+    // holds of that one is done with before the first upload into this one
+    // (aliasing barriers are invalid on committed resources).
+    if copy.aliased && !staging.uploaded.load(Relaxed) {
         let aliasing = D3D12_RESOURCE_BARRIER {
             Type: D3D12_RESOURCE_BARRIER_TYPE_ALIASING,
             Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
