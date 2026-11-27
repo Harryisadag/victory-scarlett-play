@@ -480,7 +480,13 @@ impl eframe::App for App {
                     }
                     let play = egui::Button::new(RichText::new("  ▶  Play  ").size(20.0).strong());
                     let r = ui.add_enabled(can, play);
-                    let r = if !setup_done { r.on_hover_text("Setup not done: the first session will have missing faces and pop-in") } else { r };
+                    let r = if setup_done {
+                        r
+                    } else if jobs::recorded() {
+                        r.on_hover_text("New build or settings: Play first brings the shaders and recorded graphics up to date (a few minutes), then starts the game")
+                    } else {
+                        r.on_hover_text("Setup not done: the first session will have missing faces and pop-in (run the first-run setup first)")
+                    };
                     if r.clicked()
                         && let Some(exe) = self.exe.clone()
                     {
