@@ -425,6 +425,16 @@ pub(crate) fn alias(list: &HostList, placed: This, source: This) -> bool {
 /// is remapping may show a frame later. A staging buffer that holds nothing
 /// yet is filled with what is there all the same ([`fill_unlocked`]): a list
 /// has recorded the upload from it by then.
+/// `VICTORY_TEXTURE_PARTS=1` (off by default; Ahmedx360/VIctory-NVIDIA
+/// 76ea5922 and the three after it): a watched texture's refresh reads and
+/// detiles only the mips and slices its written 64 KiB pages touch, not the
+/// whole texture (not the first fill, levels on demand, exact refreshes or 3D
+/// textures). Unset: every refresh reads the whole texture, as before.
+fn parts_only() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_TEXTURE_PARTS").is_some_and(|v| v == "1"))
+}
+
 fn no_wait() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("VICTORY_TEXTURE_NO_WAIT").is_some_and(|v| v == "1"))
@@ -1667,7 +1677,8 @@ impl Staging {
             // only the affected subresources. Keep the original full refresh
             // for the first fill and levels-on-demand textures, whose held
             // level judgement can change independently of title writes.
-            let read_bytes = if previous != 0
+            let read_bytes = if parts_only()
+                && previous != 0
                 && !self.on_demand
                 && !exact
                 && !self.layout.thick
