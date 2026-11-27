@@ -158,6 +158,10 @@ fn record_opening(exe: &Path, cfg: &Config, hw: &Hardware, s: &Arc<Mutex<Status>
     std::fs::create_dir_all(&fresh).map_err(|e| e.to_string())?;
     let (mut cmd, console) = game::command(exe, cfg, hw, &fresh);
     cmd.env("VICTORY_AUTO_INPUT", AUTO_START);
+    // Nothing is shown (the window stays black): the opening is not spoiled for someone who has not played it, and
+    // its slow, unfinished first-compile frames are not their first look at the game. Everything is still drawn,
+    // so every pipeline is recorded; the scripted input counts draws at the title's frame waits, not at presents.
+    cmd.env("VICTORY_PRESENT_SKIP", "1");
     cmd.arg("run").arg(game::game_exe(&game_dir)).arg("--console").arg(console).arg("--execute");
     let watch = Arc::new(Mutex::new(Watch::default()));
     let mut child = game::spawn_logged(cmd, config::logs_dir().join("setup-opening.log"), watch.clone(), None)
@@ -178,7 +182,7 @@ fn record_opening(exe: &Path, cfg: &Config, hw: &Hardware, s: &Arc<Mutex<Status>
         let fps = watch.lock().unwrap().samples.last().map(|x| x.fps).unwrap_or(0.0);
         say(
             s,
-            "Playing the opening by itself to record it - please don't touch the game window",
+            "Recording the opening's graphics - a black game window is normal; please don't touch it",
             &format!("{} of {} min · {:.0} fps", t / 60, RECORD_SECONDS / 60, fps),
             t as f32 / RECORD_SECONDS as f32,
         );
