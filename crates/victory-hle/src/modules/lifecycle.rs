@@ -150,13 +150,28 @@ struct MouseCapture {
 static MOUSE_CAPTURE: std::sync::LazyLock<Mutex<MouseCapture>> =
     std::sync::LazyLock::new(|| Mutex::new(MouseCapture::default()));
 
+/// The player freed the pointer with the toggle key (`VICTORY_MOUSE_TOGGLE=1`): the capture stays off, focus or
+/// not, until the key is pressed again. Read and written on the window thread only (its messages).
+static MOUSE_RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `VICTORY_MOUSE_TOGGLE=1` (with `VICTORY_MOUSE_CAPTURE=1`): F2 or the key under Esc (`~`) frees the pointer
+/// and locks it again, as the Scarlett build's mouse look does. Without it the capture lets go only when the
+/// window loses focus (Alt+Tab), which left players unable to reach anything else on the screen.
+fn toggle_key(message: u32, wparam: WPARAM, lparam: LPARAM) -> bool {
+    // Bit 30 of a key-down's lparam: the key was already down (auto-repeat), not a new press.
+    message == wm::WM_KEYDOWN && (wparam == 0x71 || wparam == 0xC0) && lparam & (1 << 30) == 0
+}
+
 fn capture_mouse(hwnd: HWND, active: bool) {
     if !enabled("VICTORY_MOUSE_CAPTURE") { return; }
     let mut state = MOUSE_CAPTURE.lock().unwrap_or_else(|e| e.into_inner());
     // SAFETY: runs on the window thread; local geometry, balanced cursor count.
     unsafe {
         if active && !wm::GetParent(hwnd).is_null() { return; }
-        let active = active && wm::GetForegroundWindow() == hwnd && wm::IsIconic(hwnd) == 0;
+        let active = active
+            && !MOUSE_RELEASED.load(std::sync::atomic::Ordering::Relaxed)
+            && wm::GetForegroundWindow() == hwnd
+            && wm::IsIconic(hwnd) == 0;
         if !active {
             if state.window == hwnd as usize {
                 wm::ClipCursor(std::ptr::null());
@@ -370,6 +385,12 @@ extern "system" fn window_proc(
         wm::WM_SETFOCUS | wm::WM_MOVE | wm::WM_SIZE => capture_mouse(hwnd, true),
         _ => {}
     }
+    if enabled("VICTORY_MOUSE_TOGGLE") && enabled("VICTORY_MOUSE_CAPTURE") && toggle_key(message, wparam, lparam) {
+        let released = !MOUSE_RELEASED.load(std::sync::atomic::Ordering::Relaxed);
+        MOUSE_RELEASED.store(released, std::sync::atomic::Ordering::Relaxed);
+        tracing::info!(released, "mouse capture toggled (F2 / ~)");
+        capture_mouse(hwnd, !released);
+    }
     // A user close (close button, Alt+F4, window or taskbar menu); a
     // console title never sees one, nor a WM_CLOSE from it.
     if message == wm::WM_SYSCOMMAND && wparam & 0xFFF0 == wm::SC_CLOSE as usize {
@@ -529,6 +550,15 @@ pub(crate) fn module() -> HleModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mouse_toggle_takes_new_presses_of_f2_and_tilde_only() {
+        assert!(toggle_key(wm::WM_KEYDOWN, 0x71, 0));
+        assert!(toggle_key(wm::WM_KEYDOWN, 0xC0, 0));
+        assert!(!toggle_key(wm::WM_KEYDOWN, 0x71, 1 << 30), "auto-repeat");
+        assert!(!toggle_key(wm::WM_KEYUP, 0x71, 0));
+        assert!(!toggle_key(wm::WM_KEYDOWN, 0x70, 0), "F1 is the settings menu");
+    }
 
     #[test]
     fn mouse_reference_handles_focus_reset_and_warp() {
