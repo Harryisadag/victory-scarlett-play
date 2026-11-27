@@ -70,6 +70,10 @@ pub struct RtSettings {
     pub clean_skin: bool,
     /// Large textures start this many levels down (`VICTORY_TEXTURE_MIP_DROP`, LightYearZh; 0..=3): for 8 GB cards.
     pub mip_drop: u32,
+    /// Kemerd's pipelines made from the title's loose pieces (`VICTORY_PIPELINE_PIECES`, part of the fast set): more
+    /// draws happen, but some vertex inputs are guessed; suspected of the meshes seen distorted in the plane
+    /// (2026-11-27). Only with `fast`.
+    pub pieces: bool,
 }
 
 impl Default for RtSettings {
@@ -95,6 +99,7 @@ impl Default for RtSettings {
             first_wait_ms: 0,
             clean_skin: false,
             mip_drop: 0,
+            pieces: true,
         }
     }
 }

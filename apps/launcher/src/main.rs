@@ -882,6 +882,12 @@ fn ui_rt(ui: &mut egui::Ui, rt: &mut config::RtSettings, nvidia: bool, gpu: &str
         ui.horizontal(|ui| {
             changed |= ui.radio_value(&mut rt.fast, true, "Fast (recommended)").changed();
             changed |= ui.radio_value(&mut rt.fast, false, "Plain").on_hover_text("The official release's settings").changed();
+            if rt.fast {
+                changed |= ui
+                    .checkbox(&mut rt.pieces, "pipelines from pieces")
+                    .on_hover_text("Kemerd: pipelines built from the game's loose parts, so more is drawn. Some vertex inputs are guessed: turn off if meshes look stretched or distorted")
+                    .changed();
+            }
         });
         ui.end_row();
     });

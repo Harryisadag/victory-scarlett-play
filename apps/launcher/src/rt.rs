@@ -183,6 +183,8 @@ pub fn args(rt: &RtSettings, series_s: bool, mouse: bool, cut_hold: bool) -> Vec
     // menu, a long pipeline compile): patched out, only where the bytes of v1.0.2.1 match (engine-rt, from the
     // Scarlett build / megafork 382c129d).
     set("VICTORY_NO_WATCHDOG", "1");
+    // The audio decoding thread first in line (engine-rt): sound broke up in heavy scenes on an 8-core PC.
+    set("VICTORY_AUDIO_PRIORITY", "1");
     if rt.scarlett_fixes {
         set("VICTORY_PLANE_NOW", "1");
         set("VICTORY_DSTORAGE_WORKERS", "physical");
@@ -200,7 +202,7 @@ pub fn args(rt: &RtSettings, series_s: bool, mouse: bool, cut_hold: bool) -> Vec
         set("VICTORY_TEXTURE_MIP_DROP", &rt.mip_drop.min(3).to_string());
     }
     if rt.fast {
-        for (k, v) in FAST {
+        for (k, v) in FAST.iter().filter(|(k, _)| rt.pieces || !k.starts_with("VICTORY_PIPELINE_PIECES")) {
             set(k, v);
         }
     }
@@ -275,12 +277,14 @@ mod tests {
     #[test]
     fn defaults_match_play_cmd() {
         let a = args(&RtSettings::default(), false, true, true);
-        assert!(a.contains(&"VICTORY_NO_WATCHDOG=1".to_owned()) && a.contains(&"VICTORY_PLANE_NOW=1".to_owned()) && a.contains(&"VICTORY_CUT_HOLD=wait".to_owned()));
+        assert!(a.contains(&"VICTORY_AUDIO_PRIORITY=1".to_owned()) && a.contains(&"VICTORY_NO_WATCHDOG=1".to_owned()) && a.contains(&"VICTORY_PLANE_NOW=1".to_owned()) && a.contains(&"VICTORY_CUT_HOLD=wait".to_owned()));
         assert!(a.contains(&"VICTORY_MOUSE_CAPTURE=1".to_owned()) && a.contains(&"VICTORY_MOUSE_TOGGLE=1".to_owned()));
         assert_eq!(&a[..6], ["--res", "1440", "--dlss", "quality", "--fps", "1000"]);
         assert!(a.contains(&"VICTORY_REFLEX=boost".to_owned()));
         assert!(a.contains(&"VICTORY_FULLSCREEN=0".to_owned()));
-        assert!(a.contains(&"VICTORY_SEND_THREAD=1".to_owned()));
+        assert!(a.contains(&"VICTORY_SEND_THREAD=1".to_owned()) && a.contains(&"VICTORY_PIPELINE_PIECES=1".to_owned()));
+        let no_pieces = args(&RtSettings { pieces: false, ..Default::default() }, false, false, false);
+        assert!(no_pieces.contains(&"VICTORY_SEND_THREAD=1".to_owned()) && !no_pieces.iter().any(|x| x.starts_with("VICTORY_PIPELINE_PIECES")));
         assert!(!a.iter().any(|x| x == "--framegen" || x == "--no-framegen-ready" || x == "--series-s"));
         assert!(a.contains(&"VICTORY_PROBE_RAYS=1".to_owned()) && !a.iter().any(|x| x.starts_with("VICTORY_AMBIENT")));
         let fill = args(&RtSettings { light: "fill".into(), ..Default::default() }, false, false, false);
