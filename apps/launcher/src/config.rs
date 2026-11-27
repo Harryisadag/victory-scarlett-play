@@ -110,6 +110,8 @@ pub struct Config {
     /// The `victory.exe` build and game folder the first-run setup was done for.
     pub setup_done_for: Option<String>,
     pub check_updates: bool,
+    /// Every save is zipped into `save-backups` before each Play (the newest 10 kept).
+    pub backup_saves: bool,
 }
 
 impl Default for Config {
@@ -133,6 +135,7 @@ impl Default for Config {
             install_id: new_id(),
             setup_done_for: None,
             check_updates: true,
+            backup_saves: true,
         }
     }
 }

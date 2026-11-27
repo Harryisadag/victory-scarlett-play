@@ -10,6 +10,7 @@ mod jobs;
 mod presets;
 mod report;
 mod rt;
+mod saves;
 mod update;
 mod verify;
 
@@ -119,6 +120,10 @@ struct App {
     minimized_for_game: bool,
     /// Storage figures (bytes): Scarlett caches, NVIDIA-RT caches, logs, saves; refreshed on demand.
     storage: Option<[u64; 4]>,
+    /// An import being chosen: where from, and each slot found there with whether it is ticked.
+    save_pick: Option<(std::path::PathBuf, Vec<(saves::Slot, bool)>)>,
+    /// The last save action's result (error?, text).
+    save_note: Option<(bool, String)>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -143,6 +148,8 @@ impl App {
             verify: None,
             minimized_for_game: false,
             storage: None,
+            save_pick: None,
+            save_note: None,
             cfg,
         };
         // A saved choice of a layer this folder does not have falls back to Scarlett.
@@ -613,6 +620,12 @@ impl eframe::App for App {
                         && let Some(exe) = self.engine_exe()
                     {
                         self.note = None;
+                        // A copy of every save first (the newest 10 are kept): a session that goes wrong cannot cost one.
+                        if self.cfg.backup_saves
+                            && let Err(e) = saves::backup(&config::saves_dir())
+                        {
+                            self.save_note = Some((true, format!("The save backup before Play failed: {e}")));
+                        }
                         if self.cfg.minimize_while_playing {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                             self.minimized_for_game = true;
@@ -665,6 +678,7 @@ impl eframe::App for App {
                 }
 
                 ui.add_space(12.0);
+                self.ui_saves(ui);
                 self.ui_tools(ui);
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -895,6 +909,138 @@ impl App {
                         self.cfg.save();
                     }
                     self.storage = None;
+                }
+            }
+        });
+    }
+}
+
+impl App {
+    /// Saves: what there is, backup, export, import from other builds.
+    fn ui_saves(&mut self, ui: &mut egui::Ui) {
+        egui::CollapsingHeader::new("Saves").default_open(false).show(ui, |ui| {
+            let busy = self.busy();
+            if busy {
+                ui.label(RichText::new("While the game runs, saves are only shown: import and export after it has closed.").small().weak());
+            }
+            let data = config::saves_dir();
+            let mine = saves::ours(&data);
+            if mine.is_empty() {
+                ui.label("No saves yet.");
+            }
+            for s in &mine {
+                ui.label(format!("• {}", s.label()));
+            }
+            ui.horizontal(|ui| {
+                if ui.add_enabled(!busy && !mine.is_empty(), egui::Button::new("Back up now")).clicked() {
+                    self.save_note = Some(match saves::backup(&data) {
+                        Ok(Some(f)) => (false, format!("Backed up to {}", f.display())),
+                        Ok(None) => (false, "Nothing to back up.".into()),
+                        Err(e) => (true, format!("Backup failed: {e}")),
+                    });
+                }
+                if ui.add_enabled(!busy && !mine.is_empty(), egui::Button::new("Export to a zip...")).clicked()
+                    && let Some(to) = rfd::FileDialog::new().set_title("Export saves").set_file_name("gta-saves.zip").add_filter("zip", &["zip"]).save_file()
+                {
+                    self.save_note = Some(match saves::export(&data, &to) {
+                        Ok(n) => (false, format!("Exported {n} files to {}", to.display())),
+                        Err(e) => (true, format!("Export failed: {e}")),
+                    });
+                }
+                if ui.button("Open backups folder").clicked() {
+                    let _ = std::fs::create_dir_all(saves::backups_dir());
+                    let _ = std::process::Command::new("explorer").arg(saves::backups_dir()).spawn();
+                }
+            });
+            if ui.checkbox(&mut self.cfg.backup_saves, "Back up every save before each Play (the newest 10 kept)").changed() {
+                self.cfg.save();
+            }
+            ui.add_space(4.0);
+            ui.label(RichText::new("Import").strong());
+            ui.label(
+                RichText::new("An imported save becomes the newest version of its slot; what you had stays on disk under it (and in the backups).")
+                    .small()
+                    .weak(),
+            );
+            let mut pick_from: Option<std::path::PathBuf> = None;
+            ui.add_enabled_ui(!busy, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (label, path) in saves::known_sources(&data) {
+                        if ui.button(format!("From {label}")).on_hover_text(path.display().to_string()).clicked() {
+                            pick_from = Some(path);
+                        }
+                    }
+                    if ui.button("From a folder...").on_hover_text("Another build's data or saves folder, or XCL's gamesave folder").clicked()
+                        && let Some(dir) = rfd::FileDialog::new().set_title("A folder with saves").pick_folder()
+                    {
+                        pick_from = Some(dir);
+                    }
+                    if ui.button("From a zip...").on_hover_text("A zip this launcher exported or backed up").clicked()
+                        && let Some(f) = rfd::FileDialog::new().set_title("A saves zip").add_filter("zip", &["zip"]).pick_file()
+                    {
+                        pick_from = Some(f);
+                    }
+                });
+            });
+            if let Some(path) = pick_from {
+                match saves::read_source(&path) {
+                    Ok(slots) => {
+                        let ticked = slots
+                            .into_iter()
+                            .map(|s| {
+                                let story = s.is_story();
+                                (s, story)
+                            })
+                            .collect();
+                        self.save_pick = Some((path, ticked));
+                        self.save_note = None;
+                    }
+                    Err(e) => self.save_note = Some((true, e)),
+                }
+            }
+            let mut done = None;
+            if let Some((from, slots)) = &mut self.save_pick {
+                ui.group(|ui| {
+                    ui.label(format!("Saves in {}:", from.display()));
+                    for (slot, on) in slots.iter_mut() {
+                        ui.checkbox(on, slot.label());
+                    }
+                    ui.horizontal(|ui| {
+                        let n = slots.iter().filter(|(_, on)| *on).count();
+                        if ui.add_enabled(!busy && n > 0, egui::Button::new(format!("Import {n} selected"))).clicked() {
+                            // A backup of what is there first.
+                            let backed = saves::backup(&data);
+                            let mut errors = Vec::new();
+                            for (slot, _) in slots.iter().filter(|(_, on)| *on) {
+                                if let Err(e) = saves::import(&data, slot) {
+                                    errors.push(format!("{}: {e}", slot.name));
+                                }
+                            }
+                            done = Some(if errors.is_empty() {
+                                let before = match backed {
+                                    Ok(Some(f)) => format!("Your saves from before it are in {}.", f.display()),
+                                    _ => String::new(),
+                                };
+                                (false, format!("Imported {n}. {before}"))
+                            } else {
+                                (true, format!("Import failed for: {}", errors.join("; ")))
+                            });
+                        }
+                        if ui.button("Cancel").clicked() {
+                            done = Some((false, String::new()));
+                        }
+                    });
+                });
+            }
+            if let Some(note) = done {
+                self.save_pick = None;
+                self.save_note = (!note.1.is_empty()).then_some(note);
+            }
+            if let Some((bad, text)) = &self.save_note {
+                if *bad {
+                    ui.colored_label(Color32::from_rgb(220, 80, 70), text);
+                } else {
+                    ui.label(RichText::new(text).small());
                 }
             }
         });
