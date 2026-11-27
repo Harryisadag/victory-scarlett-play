@@ -89,7 +89,7 @@ fn translate(exe: &Path, cfg: &Config, hw: &Hardware, s: &Arc<Mutex<Status>>, ca
         .map_err(|e| format!("could not start victory.exe: {e}"))?;
     loop {
         if cancel.load(Ordering::Relaxed) {
-            let _ = child.kill();
+            game::kill_tree(&mut child);
             return Err("cancelled".into());
         }
         if let Some(code) = child.try_wait().map_err(|e| e.to_string())? {
@@ -119,7 +119,7 @@ fn warm(exe: &Path, cfg: &Config, hw: &Hardware, s: &Arc<Mutex<Status>>, cancel:
     let started = Instant::now();
     loop {
         if cancel.load(Ordering::Relaxed) {
-            let _ = child.kill();
+            game::kill_tree(&mut child);
             return Err("cancelled".into());
         }
         if child.try_wait().map_err(|e| e.to_string())?.is_some() {
@@ -230,7 +230,7 @@ fn record_opening(exe: &Path, cfg: &Config, hw: &Hardware, s: &Arc<Mutex<Status>
     // Unmuted before it ends, so the mute Windows remembers for victory.exe does not carry over to Play.
     crate::audio::set_mute(pid, false);
     let _ = std::fs::remove_file(&marker);
-    let _ = child.kill();
+    game::kill_tree(&mut child);
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&fresh);
     r
@@ -325,7 +325,7 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
                 break Some(code);
             }
             if cancel.load(Ordering::Relaxed) {
-                let _ = child.kill();
+                game::kill_tree(&mut child);
                 break child.wait().ok();
             }
             if warming {
@@ -336,7 +336,7 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
                 if warm_from.is_some_and(|t| t.elapsed() >= Duration::from_secs(20)) {
                     warming = false;
                     say(s, "First start of this version: starting the game again once", "a new version's first run otherwise stays slow", -1.0);
-                    let _ = child.kill();
+                    game::kill_tree(&mut child);
                     let _ = child.wait();
                     if let Some(dir) = warm_mark.parent() {
                         let _ = std::fs::create_dir_all(dir);
@@ -458,7 +458,7 @@ pub fn get_dlss(exe: PathBuf) -> Job {
             .map_err(|e| format!("could not start victory.exe: {e}"))?;
         loop {
             if cancel.load(Ordering::Relaxed) {
-                let _ = child.kill();
+                game::kill_tree(&mut child);
                 return Err("cancelled".into());
             }
             if child.try_wait().map_err(|e| e.to_string())?.is_some() {

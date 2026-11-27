@@ -374,16 +374,24 @@ pub fn alive(pid: u32) -> bool {
     }
 }
 
-/// Ends process `pid` (Stop the game, for a game that restarted itself).
+/// Ends process `pid` and every process it started (Stop the game, for a game that restarted itself).
 pub fn end(pid: u32) {
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
-    // SAFETY: a terminate-only handle, closed below.
-    unsafe {
-        let h = OpenProcess(PROCESS_TERMINATE, 0, pid);
-        if !h.is_null() {
-            TerminateProcess(h, 1);
-            CloseHandle(h);
-        }
-    }
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+}
+
+/// Ends `child` and every process it started (a preload's and a warm-up's pipeline workers, a restart from F1):
+/// `Child::kill` alone ends only the first, and a stopped preload went on building in 9 processes of its own.
+pub fn kill_tree(child: &mut Child) {
+    let _ = Command::new("taskkill")
+        .args(["/PID", &child.id().to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+    let _ = child.kill();
 }
