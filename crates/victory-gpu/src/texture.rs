@@ -1671,7 +1671,8 @@ impl Staging {
                 let selected = self.dirty_parts(&written, previous);
                 if selected.iter().any(|&dirty| dirty) {
                     with_read(size, |read| {
-                        read.fill(0);
+                        // Only selected subresources are read below, so the
+                        // untouched scratch bytes need not be cleared.
                         let mut spans = Vec::new();
                         for (i, &dirty) in selected.iter().enumerate() {
                             if dirty {
