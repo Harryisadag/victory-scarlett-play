@@ -101,6 +101,10 @@ $set = [ordered]@{
     # Picture: the material-class depth plane is current before the title's tiling pass reads it (the base
     # gave it last frame's)
     VICTORY_PLANE_NOW = '1'
+
+    # Every pipeline the title creates is kept in the cache folder, so that `victory warm --used` (below) can have
+    # the driver compile them before the next start instead of at a draw's first use (pop-in on a first visit)
+    VICTORY_PIPELINE_BOOK = '1'
 }
 if ($Hooks -and -not $NoHooks) {
     # The memory hooks
@@ -133,6 +137,14 @@ if (-not $NoPrecompile -and $have -ne $stamp) {
     } else {
         Write-Warning "No shaders.rpf in ${Game}: the shaders will be translated while playing."
     }
+}
+
+# Pipelines recorded by earlier runs (VICTORY_PIPELINE_BOOK) and not compiled yet are made ahead, in child
+# processes, into the driver's own disk cache (warm-done.txt remembers them, so this is quick when nothing is new).
+if (-not $NoPrecompile -and (Test-Path -LiteralPath (Join-Path $Cache 'pipelines\known-pipelines.bin'))) {
+    Write-Host 'Compiling the pipelines earlier runs used, ahead (only the new ones)...'
+    & $Victory warm --used
+    if ($LASTEXITCODE -ne 0) { Write-Warning 'Making pipelines ahead failed; they will be made while playing instead.' }
 }
 if ($OnlyPrecompile) { exit 0 }
 
