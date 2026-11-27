@@ -57,6 +57,8 @@ pub struct RtSettings {
     /// the open world (Vice) the streaming bursts it watches come every few seconds, and one session waited 142
     /// times, 48 s in all, ten of them the full 3 s (2026-11-27).
     pub cut_hold: bool,
+    /// Which frame generation: `auto` (DLSS where the card has it, else AMD FSR 3), `dlss`, `fsr`.
+    pub fg_type: String,
 }
 
 impl Default for RtSettings {
@@ -77,6 +79,7 @@ impl Default for RtSettings {
             light: "both".into(),
             scarlett_fixes: true,
             cut_hold: false,
+            fg_type: "auto".into(),
         }
     }
 }

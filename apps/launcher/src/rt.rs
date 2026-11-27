@@ -159,6 +159,11 @@ pub fn args(rt: &RtSettings, series_s: bool, mouse: bool, cut_hold: bool) -> Vec
         }
     }
     let mut out = vec!["--res".to_owned(), res.to_owned(), "--dlss".to_owned(), rt.dlss.clone(), "--fps".to_owned(), rt.fps_cap.clamp(1, 1000).to_string()];
+    // Which frame generation (trustno1 29d8dbf7): DLSS's, AMD FSR 3's, or auto (DLSS where the card has it).
+    if matches!(rt.fg_type.as_str(), "auto" | "dlss" | "fsr") {
+        out.push("--fg-type".into());
+        out.push(rt.fg_type.clone());
+    }
     if series_s {
         out.push("--series-s".into());
     }
@@ -190,6 +195,8 @@ pub fn play_command(exe: &Path, cfg: &Config) -> Result<Command, String> {
     cmd.env("VICTORY_DATA_DIR", config::saves_dir());
     // Plain log lines: the colour codes it writes otherwise hid the frame-rate lines from the launcher.
     cmd.env("NO_COLOR", "1");
+    // AMD's FidelityFX DLLs for FSR 3 frame generation, where the launcher fetched them.
+    cmd.env("VICTORY_FIDELITYFX_DIR", crate::fsr::dir());
     cmd.arg("play").arg(crate::game::game_exe(game_dir)).args(args(&cfg.rt, cfg.rt.series_s, cfg.kbm, cfg.rt.cut_hold));
     if let Some(dir) = exe.parent() {
         cmd.current_dir(dir);
@@ -205,7 +212,7 @@ pub fn crash_files_since(exe: &Path, since: std::time::SystemTime) -> Vec<PathBu
         .flatten()
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("crash-")))
+        .filter(|p| p.file_name().is_some_and(|n| { let n = n.to_string_lossy(); (n.starts_with("crash-") || n.contains("-crash-")) && (n.ends_with(".log") || n.ends_with(".dmp")) }))
         .filter(|p| std::fs::metadata(p).and_then(|m| m.modified()).is_ok_and(|t| t >= since))
         .collect();
     out.sort();

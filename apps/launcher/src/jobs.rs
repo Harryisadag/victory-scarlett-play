@@ -260,7 +260,12 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
         let rt = cfg.engine == Engine::NvidiaRt;
         let started_at = std::time::SystemTime::now();
         let cmd = if rt {
-            crate::rt::play_command(&exe, &cfg)?
+            let mut cmd = crate::rt::play_command(&exe, &cfg)?;
+            // (NVIDIA-RT: `refresh` asks for every shader to be made first, with this start's settings, then the game.)
+            if refresh {
+                cmd.arg("--preload");
+            }
+            cmd
         } else {
             if refresh {
                 translate(&exe, &cfg, &hw, s, cancel)?;
@@ -317,7 +322,12 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
                 "Playing",
                 &match last {
                     Some(l) => format!("{:.0} min · now {:.0} fps at {:.0} draws · average {:.1} fps · {:.1} GB", started.elapsed().as_secs() / 60, l.fps, l.draws, avg, mem),
-                    None => format!("{:.0} s · starting", started.elapsed().as_secs()),
+                    // Before the first frame: the layer's last line (a preload's progress, the start's steps).
+                    None => format!(
+                        "{:.0} s · {}",
+                        started.elapsed().as_secs(),
+                        watch.lock().unwrap().tail.back().map(|l| l.chars().take(120).collect::<String>()).unwrap_or_else(|| "starting".into())
+                    ),
                 },
                 -1.0,
             );
@@ -361,6 +371,18 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
 }
 
 /// Fetches NVIDIA's DLSS and frame generation files with the NVIDIA-RT layer's `victory get-dlss`.
+/// Fetches AMD's FidelityFX DLLs for FSR 3 frame generation (`crate::fsr`).
+pub fn get_fsr() -> Job {
+    Job::start(move |s, _cancel| {
+        let step = "Downloading AMD's FSR 3 frame generation files from AMD's GitHub (about 30 MB)";
+        say(s, step, "", 0.0);
+        let st = s.clone();
+        crate::fsr::download(&move |f| say(&st, step, "", f))?;
+        say(s, "FSR 3 files ready", "", 1.0);
+        Ok(())
+    })
+}
+
 pub fn get_dlss(exe: PathBuf) -> Job {
     Job::start(move |s, cancel| {
         say(s, "Downloading NVIDIA's DLSS files from NVIDIA's GitHub (about 70 MB)", "", -1.0);

@@ -9,6 +9,7 @@ mod hardware;
 mod jobs;
 mod presets;
 mod report;
+mod fsr;
 mod rt;
 mod saves;
 mod update;
@@ -118,6 +119,8 @@ struct App {
     verify: Option<Arc<Mutex<Option<verify::Report>>>>,
     /// The window was minimised for a game session: restored when it ends.
     minimized_for_game: bool,
+    /// (NVIDIA-RT) The next Play makes every shader first (`victory play --preload`).
+    rt_preload: bool,
     /// Storage figures (bytes): Scarlett caches, NVIDIA-RT caches, logs, saves; refreshed on demand.
     storage: Option<[u64; 4]>,
     /// An import being chosen: where from, and each slot found there with whether it is ticked.
@@ -131,6 +134,7 @@ enum JobKind {
     Setup,
     Play,
     Dlss,
+    Fsr,
 }
 
 impl App {
@@ -147,6 +151,7 @@ impl App {
             rt_exe: rt::exe(),
             verify: None,
             minimized_for_game: false,
+            rt_preload: false,
             storage: None,
             save_pick: None,
             save_note: None,
@@ -211,6 +216,7 @@ impl App {
             match (kind, error) {
                 (_, Some(e)) if e == "cancelled" => self.note = Some((false, "Stopped.".into())),
                 (_, Some(e)) => self.note = Some((true, e)),
+                (JobKind::Fsr, None) => self.note = Some((false, "AMD's FSR 3 frame generation files are ready.".into())),
                 (JobKind::Dlss, None) => self.note = Some((false, "NVIDIA's DLSS and frame generation files are ready.".into())),
                 (JobKind::Setup, None) => {
                     if let Some(exe) = &self.exe {
@@ -570,6 +576,22 @@ impl eframe::App for App {
                         self.job = Some((JobKind::Dlss, jobs::get_dlss(exe)));
                     }
                 }
+                // AMD FSR 3 frame generation: what a card without DLSS frame generation has (or what was asked for).
+                let wants_fsr = self.cfg.rt.fg_type == "fsr" || (self.cfg.rt.fg_type == "auto" && !fsr::dlss_framegen_card(&self.hw.gpu));
+                if self.cfg.engine == Engine::NvidiaRt && wants_fsr && self.cfg.rt.framegen != 1 && !fsr::ready() {
+                    ui.colored_label(
+                        Color32::from_rgb(210, 160, 50),
+                        "⚠ Frame generation on this card is AMD FSR 3's (2x), and its files are not on this PC yet.",
+                    );
+                    if ui
+                        .add_enabled(!busy, egui::Button::new("Download them from AMD's GitHub (about 30 MB, once)"))
+                        .on_hover_text("AMD's signed FidelityFX DLLs (SDK v2.4.0, checked against their SHA-256) and AMD's licence, into %LOCALAPPDATA%\\victory-scarlett-play\\fidelityfx. Not part of this project.")
+                        .clicked()
+                    {
+                        self.note = None;
+                        self.job = Some((JobKind::Fsr, jobs::get_fsr()));
+                    }
+                }
                 let setup_done = self.setup_done();
                 if !setup_done {
                     if jobs::recorded(&self.cfg) {
@@ -581,6 +603,10 @@ impl eframe::App for App {
                         ui.label("First-run setup has not been done yet for this lighting. It translates the game's shaders, plays the opening by itself in a black window to record the graphics it needs (nothing is shown, so the story isn't spoiled - don't touch it), and compiles them ahead, so faces, skin and the first scenes come out right when you play. About 15 minutes, once.");
                         ui.checkbox(&mut self.record_opening, "Include the opening recording (recommended; uses a separate, temporary save)");
                     }
+                }
+                if self.cfg.engine == Engine::NvidiaRt && self.job.is_none() {
+                    ui.checkbox(&mut self.rt_preload, "Build all shaders first, this time (once: a long wait, then no stutter from new shaders)")
+                        .on_hover_text("Not needed: without it the game builds them as it goes, so the first sessions stutter. Run it again after an update of this launcher or a new graphics driver. Stopped, it goes on where it was next time.");
                 }
                 if self.job.is_none() {
                     let (free_ram, free_commit) = hardware::free_now();
@@ -626,11 +652,13 @@ impl eframe::App for App {
                         {
                             self.save_note = Some((true, format!("The save backup before Play failed: {e}")));
                         }
-                        if self.cfg.minimize_while_playing {
+                        let preload = self.cfg.engine == Engine::NvidiaRt && std::mem::take(&mut self.rt_preload);
+                        // (Not while a preload runs: its progress is shown here.)
+                        if self.cfg.minimize_while_playing && !preload {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                             self.minimized_for_game = true;
                         }
-                        let refresh = !setup_done;
+                        let refresh = if self.cfg.engine == Engine::NvidiaRt { preload } else { !setup_done };
                         self.job = Some((JobKind::Play, jobs::play(exe, self.cfg.clone(), self.hw.clone(), refresh, self.cfg.report_screenshots && self.cfg.reports != Some(false))));
                     }
                 });
@@ -649,7 +677,7 @@ impl eframe::App for App {
                     let label = match kind {
                         JobKind::Play => "Stop the game",
                         JobKind::Setup => "Cancel setup",
-                        JobKind::Dlss => "Cancel the download",
+                        JobKind::Dlss | JobKind::Fsr => "Cancel the download",
                     };
                     if ui.button(label).clicked() {
                         job.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -758,6 +786,19 @@ fn ui_rt(ui: &mut egui::Ui, rt: &mut config::RtSettings, nvidia: bool, gpu: &str
                 }
                 changed |= ui.selectable_value(&mut rt.framegen, 1, "Not loaded (saves 1.5-2 GB of VRAM)").changed();
             });
+        ui.end_row();
+        ui.label("Frame gen type");
+        ui.horizontal(|ui| {
+            changed |= ui
+                .radio_value(&mut rt.fg_type, "auto".to_owned(), "Auto")
+                .on_hover_text("DLSS frame generation on an RTX 40/50, else AMD FSR 3 (2x)")
+                .changed();
+            changed |= ui.radio_value(&mut rt.fg_type, "dlss".to_owned(), "DLSS").changed();
+            changed |= ui
+                .radio_value(&mut rt.fg_type, "fsr".to_owned(), "AMD FSR 3")
+                .on_hover_text("2x at most. On Series X it needs DLSS upscaling (an RTX card); other cards: Series S")
+                .changed();
+        });
         ui.end_row();
         ui.label("NVIDIA Reflex");
         ui.horizontal(|ui| {
