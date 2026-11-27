@@ -56,7 +56,7 @@ fn agility_version(dll: &[u8]) -> Option<u32> {
 /// Asks Windows for the Agility SDK version of the `D3D12\D3D12Core.dll`
 /// beside this program, where there is one and it is not 614. First thing in
 /// `main`: Windows reads `D3D12SDKVersion` when Direct3D 12 is first used.
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "agility")))]
 fn match_d3d12_core() {
     let Some(core) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("D3D12").join("D3D12Core.dll")))
     else {
@@ -294,6 +294,7 @@ enum Console {
 
 fn main() -> Result<()> {
     #[cfg(windows)]
+    #[cfg(not(feature = "agility"))]
     match_d3d12_core();
     // Before anything else can take the address space it needs.
     #[cfg(windows)]
