@@ -3,11 +3,11 @@
 #
 #   .\scripts\make-release.ps1                 build + pack
 #   .\scripts\make-release.ps1 -Publish        ... and create the GitHub release v<version> with both files
-#   -Relay https://...workers.dev              the report relay's address built into the launcher (else reports off)
+#   -Relay https://...workers.dev              the report relay's address (default: this project's relay; '' = reports off)
 #
 # The version is apps\launcher\Cargo.toml's. The zip holds Launcher.exe, victory\victory.exe (diagnostics build, the
 # one Scarlett's figures are measured with), LICENSE and README.txt. Never anything from the game.
-param([switch] $Publish, [string] $Relay = $env:VSP_RELAY, [string] $Notes = '')
+param([switch] $Publish, [string] $Relay = $(if ($env:VSP_RELAY) { $env:VSP_RELAY } else { 'https://victory-scarlett-relay.htspam1.workers.dev' }), [string] $Notes = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
