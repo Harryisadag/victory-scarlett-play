@@ -50,6 +50,9 @@ pub struct RtSettings {
     /// Light with ray tracing off: `both` (Scarlett's probes, `VICTORY_PROBE_RAYS`, plus the layer's fill light),
     /// `probes` (Scarlett's: probes only, fill light off), `fill` (the layer's own: fill light only).
     pub light: String,
+    /// Fixes ported from the Scarlett build (engine-rt): depth planes given their twin before use
+    /// (`VICTORY_PLANE_NOW`), storage workers per physical core (`VICTORY_DSTORAGE_WORKERS=physical`).
+    pub scarlett_fixes: bool,
 }
 
 impl Default for RtSettings {
@@ -68,6 +71,7 @@ impl Default for RtSettings {
             ray_tracing: false,
             series_s: false,
             light: "both".into(),
+            scarlett_fixes: true,
         }
     }
 }

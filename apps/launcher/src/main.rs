@@ -450,6 +450,14 @@ impl eframe::App for App {
                     if !scarlett {
                         changed |= ui_rt(ui, &mut self.cfg.rt, self.hw.vendor == hardware::Vendor::Nvidia, &self.hw.gpu);
                         changed |= ui
+                            .checkbox(&mut self.cfg.rt.scarlett_fixes, "Scarlett's fixes (depth planes in time for tiled lighting, storage workers per CPU core)")
+                            .on_hover_text("Ported from the Scarlett build: VICTORY_PLANE_NOW and VICTORY_DSTORAGE_WORKERS=physical. Turn off to compare.")
+                            .changed();
+                        changed |= ui
+                            .checkbox(&mut self.cfg.cut_hold, "Wait at scene changes until the scene has loaded (from Scarlett)")
+                            .on_hover_text("At a camera cut the game waits (up to 3 s) for its reads and pipelines instead of showing black ground and missing objects")
+                            .changed();
+                        changed |= ui
                             .checkbox(&mut self.cfg.kbm, "Mouse look (the pointer is locked in the game window - F2 or ~ frees it and locks it again)")
                             .on_hover_text("The mouse moves the camera through the game's own mouse support. Keys can be changed in the F1 menu. Alt+Tab also frees the pointer.")
                             .changed();

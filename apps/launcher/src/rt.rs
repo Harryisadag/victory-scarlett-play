@@ -95,8 +95,9 @@ const FAST: &[(&str, &str)] = &[
 ];
 
 /// `victory play`'s arguments for these choices (`series_s`: the console mode the launcher picked).
-/// `mouse`: mouse look (the pointer captured in the window, F2 or ~ frees it).
-pub fn args(rt: &RtSettings, series_s: bool, mouse: bool) -> Vec<String> {
+/// `mouse`: mouse look (the pointer captured in the window, F2 or ~ frees it). `cut_hold`: the title waits at a
+/// scene change until the scene has loaded (`VICTORY_CUT_HOLD=wait`, from the Scarlett build).
+pub fn args(rt: &RtSettings, series_s: bool, mouse: bool, cut_hold: bool) -> Vec<String> {
     let mut a: Vec<String> = Vec::new();
     let mut set = |k: &str, v: &str| {
         a.push("--set".into());
@@ -141,6 +142,17 @@ pub fn args(rt: &RtSettings, series_s: bool, mouse: bool) -> Vec<String> {
     }
     // The official release's loading fix, always (as PLAY.cmd).
     set("VICTORY_PIPELINE_SAMPLER_TABLE", "1");
+    // The title's own watchdog ends the process when its main thread stands 30 s (a cold shader cache's first
+    // menu, a long pipeline compile): patched out, only where the bytes of v1.0.2.1 match (engine-rt, from the
+    // Scarlett build / megafork 382c129d).
+    set("VICTORY_NO_WATCHDOG", "1");
+    if rt.scarlett_fixes {
+        set("VICTORY_PLANE_NOW", "1");
+        set("VICTORY_DSTORAGE_WORKERS", "physical");
+    }
+    if cut_hold {
+        set("VICTORY_CUT_HOLD", "wait");
+    }
     if rt.fast {
         for (k, v) in FAST {
             set(k, v);
@@ -178,7 +190,7 @@ pub fn play_command(exe: &Path, cfg: &Config) -> Result<Command, String> {
     cmd.env("VICTORY_DATA_DIR", config::saves_dir());
     // Plain log lines: the colour codes it writes otherwise hid the frame-rate lines from the launcher.
     cmd.env("NO_COLOR", "1");
-    cmd.arg("play").arg(crate::game::game_exe(game_dir)).args(args(&cfg.rt, cfg.rt.series_s, cfg.kbm));
+    cmd.arg("play").arg(crate::game::game_exe(game_dir)).args(args(&cfg.rt, cfg.rt.series_s, cfg.kbm, cfg.cut_hold));
     if let Some(dir) = exe.parent() {
         cmd.current_dir(dir);
     }
@@ -206,7 +218,8 @@ mod tests {
 
     #[test]
     fn defaults_match_play_cmd() {
-        let a = args(&RtSettings::default(), false, true);
+        let a = args(&RtSettings::default(), false, true, true);
+        assert!(a.contains(&"VICTORY_NO_WATCHDOG=1".to_owned()) && a.contains(&"VICTORY_PLANE_NOW=1".to_owned()) && a.contains(&"VICTORY_CUT_HOLD=wait".to_owned()));
         assert!(a.contains(&"VICTORY_MOUSE_CAPTURE=1".to_owned()) && a.contains(&"VICTORY_MOUSE_TOGGLE=1".to_owned()));
         assert_eq!(&a[..6], ["--res", "1440", "--dlss", "quality", "--fps", "1000"]);
         assert!(a.contains(&"VICTORY_REFLEX=boost".to_owned()));
@@ -214,16 +227,17 @@ mod tests {
         assert!(a.contains(&"VICTORY_SEND_THREAD=1".to_owned()));
         assert!(!a.iter().any(|x| x == "--framegen" || x == "--no-framegen-ready" || x == "--series-s"));
         assert!(a.contains(&"VICTORY_PROBE_RAYS=1".to_owned()) && !a.iter().any(|x| x.starts_with("VICTORY_AMBIENT")));
-        let fill = args(&RtSettings { light: "fill".into(), ..Default::default() }, false, false);
+        let fill = args(&RtSettings { light: "fill".into(), ..Default::default() }, false, false, false);
         assert!(!fill.iter().any(|x| x.starts_with("VICTORY_PROBE_RAYS")));
-        let probes = args(&RtSettings { light: "probes".into(), ..Default::default() }, false, false);
+        let probes = args(&RtSettings { light: "probes".into(), ..Default::default() }, false, false, false);
         assert!(probes.contains(&"VICTORY_AMBIENT=".to_owned()));
     }
 
     #[test]
     fn ultrawide_and_framegen() {
         let rt = RtSettings { res: "3440x1440".into(), framegen: 4, reflex: "off".into(), fast: false, ..Default::default() };
-        let a = args(&rt, true, false);
+        let a = args(&RtSettings { scarlett_fixes: false, ..rt }, true, false, false);
+        assert!(!a.iter().any(|x| x.starts_with("VICTORY_PLANE_NOW") || x.starts_with("VICTORY_CUT_HOLD")));
         assert!(!a.iter().any(|x| x.starts_with("VICTORY_MOUSE")));
         assert_eq!(&a[..2], ["--res", "ultrawide"]);
         assert!(a.windows(2).any(|w| w == ["--framegen", "4"]));
