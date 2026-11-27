@@ -377,9 +377,10 @@ pub(crate) fn sampler_table() -> bool {
 
 /// Sampler slots kept after the title's in every sampler heap, for the
 /// tables of [`sampler_table`].
-pub(crate) const SAMPLER_TAIL_DEFAULT: u32 = 256;
+pub(crate) const SAMPLER_TAIL_DEFAULT: u32 = 1024;
 
-/// The tail's length: `VICTORY_SAMPLER_TAIL` (16 to 1,792), else 256. Its 256 slots filled after 72 blocks in a
+/// The tail's length: `VICTORY_SAMPLER_TAIL` (16 to 1,792), else 1,024 (the title's sampler heaps hold 128: 1,152 of the
+/// card's 2,048; at 1,024 a session used 672 and no stage went back to static samplers). 256 slots filled after 72 blocks in a
 /// player's session (`sampler_tables=[72, 256, 737, 1004, 0]`): 1,004 stages went back to static samplers, so their
 /// pipelines skipped the library and the driver made them again in every run (965 of 969 made, 300 s of compiles
 /// after an engine update left the driver's cache cold). Read once; the pipelines' root signatures do not depend on it.
