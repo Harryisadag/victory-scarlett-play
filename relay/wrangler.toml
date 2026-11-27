@@ -1,0 +1,13 @@
+name = "victory-scarlett-relay"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+# Reports allowed per sender address (and per install id): 6 a minute.
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "1001"
+simple = { limit = 6, period = 60 }
+
+# The Discord webhook is a secret, set once with:
+#   npx wrangler secret put DISCORD_WEBHOOK
+# It is never written in this file or anywhere in the repository.

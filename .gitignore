@@ -79,3 +79,14 @@ Thumbs.db
 
 # The launcher remembers the game folder here (a local path: not for the repository)
 game-folder.txt
+
+# victory-scarlett-play: never commit local or game-derived files
+game-folder.txt
+*.rpf
+*.xvd
+cache/
+pipelines/
+shaders/
+relay/node_modules/
+relay/.wrangler/
+dist/

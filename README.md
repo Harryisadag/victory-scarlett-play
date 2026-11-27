@@ -1,3 +1,53 @@
+# victory-scarlett-play
+
+A ready-to-play package of the **Scarlett** build of [VIctory](https://github.com/Marvisak/VIctory) (a compatibility
+layer that runs an Xbox Series title natively on Windows from files you supply), with a launcher that sets it up and
+keeps it up to date.
+
+> **This repository contains no game files, code or assets, and none will ever be added.** You need your own dump of
+> the game (the folder with `game_scarlett_master.exe`). The launcher only points at it and never writes into it.
+> Shader and pipeline caches are built on your own PC from your own copy and are never shared.
+> Not affiliated with or endorsed by the game's developer or publisher.
+
+## What's in it
+
+- The game layer: [Op-lite/victory-scarlett](https://github.com/Op-lite/victory-scarlett) `scarlett-fox` @ `835ca60`,
+  exactly, with its full history, plus:
+  - the RTX 50-series shader fix (Xid 13; fxceless/victory-fork#1006, port of Marvisak/VIctory#2143),
+  - a fix for a crash when the game uses a page of memory while the rest of its view is remapped,
+  - pipelines the game uses are recorded and compiled ahead of the next start (no pop-in on first visits),
+  - test fixes.
+- `apps/launcher`: the launcher (Windows app): hardware check, settings picked for your PC, a one-time first-run setup,
+  Play, update check, opt-in reports.
+- `relay`: the small server the opt-in reports go through.
+
+## Play
+
+1. Download the latest release zip from **Releases**, unzip it anywhere (not inside your game folder).
+2. Run `Launcher.exe`, pick your game folder, and let the first-run setup finish (10-15 minutes, once).
+3. Press **Play**.
+
+Needs Windows 10/11 x64, a CPU with AVX2, a DirectX 12 GPU with shader model 6.6 and mesh shaders, 32 GB of RAM
+(16 GB VRAM recommended), and a page file. Tested on: Ryzen 7 3700X + RTX 5070 Ti 16 GB + 32 GB (12-25 fps).
+
+## Build from source
+
+Install [Rust](https://rustup.rs) and the Visual Studio C++ build tools with a Windows SDK, then:
+
+```powershell
+cargo build --profile diag -p victory --features diagnostics --locked
+cargo build --release -p launcher --locked
+```
+
+`Play-Scarlett.cmd` (Scarlett's own launcher script) also still works.
+
+## Credits
+
+Marvisak/VIctory and its contributors; fxceless/victory-fork; avatarmanz/VIctory-7900XTX; codec-d/cool_fox;
+Op-lite/victory-scarlett; and every pull-request author named in the history. Licence: GPL-3.0-or-later (`LICENSE`).
+
+---
+
 # Scarlett fork (branch `scarlett-fox`), state of 2026-11-26
 
 ## How to start the game (the short version)

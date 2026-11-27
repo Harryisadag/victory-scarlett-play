@@ -16,6 +16,8 @@ const MAX_ENCODED_RUN: usize = 512;
 
 const ALLOWED_EXTENSIONS: &[&str] = &[
     "rs", "toml", "md", "txt", "lock", "yml", "yaml", "json", "hlsl", "hlsli", "ps1", "cmd", "sh",
+    // victory-scarlett-play: plain-text source of the report relay and of Scarlett's tools (no game data).
+    "js", "py", "java", "patch",
 ];
 const ALLOWED_NAMES: &[&str] = &[
     ".gitignore",
