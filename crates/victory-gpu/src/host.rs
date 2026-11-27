@@ -2853,7 +2853,7 @@ fn line() -> std::sync::MutexGuard<'static, Line> {
 }
 
 /// Why flights were settled ([`LATE_STATS`]' places from 2 on).
-const WHY_SYNC: usize = 2;
+pub(crate) const WHY_SYNC: usize = 2;
 const WHY_CARD_DONE: usize = 3;
 const WHY_VALUE: usize = 4;
 const WHY_STALE: usize = 5;
@@ -9705,6 +9705,8 @@ struct Presenter {
     composer: Option<crate::compose::Composer>,
     /// The numbers panel (F3), in every build.
     panel: panel::Panel,
+    /// What the card does for frame generation, for the first seconds.
+    notice: panel::Notice,
     /// The F1 settings menu.
     menu: menu::Menu,
 }
@@ -10186,8 +10188,8 @@ impl Meter {
         let Some(caption) = &self.caption else { return };
         // With frame generation showing more frames than are rendered, both rates.
         let text = match crate::streamline::shown_per_frame() {
-            1 => format!(" | VIctory {fps:.0} fps {ms:.1} ms/frame {draws:.0} draws/frame"),
-            per => format!(" | VIctory {fps:.0} fps (frame gen {:.0} fps) {ms:.1} ms/frame {draws:.0} draws/frame", fps * f64::from(per)),
+            1 => format!(" | VIctory-NVIDIA {fps:.0} fps {ms:.1} ms/frame {draws:.0} draws/frame"),
+            per => format!(" | VIctory-NVIDIA {fps:.0} fps (frame gen {:.0} fps) {ms:.1} ms/frame {draws:.0} draws/frame", fps * f64::from(per)),
         };
         let mut text: Vec<u16> = caption.iter().copied().chain(text.encode_utf16()).collect();
         text.push(0);
@@ -10342,6 +10344,7 @@ impl Host {
             // Presents sent ahead hold back buffers until they have run.
             settle_now(WHY_SYNC);
             crate::streamline::resizing();
+            crate::streamline::fsr::resizing();
             // SAFETY: no back buffer is held; every submission was waited for.
             let resized = unsafe {
                 p.swap_chain
@@ -10543,6 +10546,7 @@ impl Host {
                 crate::popwatch::take(&self.device, list, texture)
             };
             p.panel.draw(self, copy, &back, (width, height), format);
+            p.notice.draw(self, copy, &back, (width, height), format);
             p.menu.draw(self, copy, &back, (width, height), format);
             #[cfg(not(feature = "diagnostics"))]
             let _ = frame;
@@ -10564,6 +10568,17 @@ impl Host {
                 ));
                 list.ResourceBarrier(&post);
             }
+            // FSR 3 frame generation: this frame's prepare dispatch, last in
+            // the list before the Present (its own descriptor heaps).
+            crate::streamline::fsr::before_present(
+                &self.device,
+                &p.swap_chain,
+                list,
+                [width, height],
+                format,
+                (texture, state_u32),
+                composed && overlay.is_some(),
+            );
             copy.close();
             let flown = match slot {
                 Some(i) => {
@@ -10670,14 +10685,17 @@ impl Host {
                 SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
                 ..Default::default()
             };
+            // FSR 3 frame generation (where DLSS Frame Generation does not
+            // run): FidelityFX's frame interpolation swap chain.
+            let fsr = crate::streamline::fsr::swap_chain(&factory, &self.queue, hwnd, &desc);
             // With frame generation, through Streamline's factory proxy and
             // on its queue proxy: the swap chain is its proxy.
-            let proxied = crate::streamline::swap_chain_factory(&factory).map(|(proxy, queue)| {
+            let proxied = if fsr.is_some() { None } else { crate::streamline::swap_chain_factory(&factory) }.map(|(proxy, queue)| {
                 proxy
                     .CreateSwapChainForHwnd(&queue, hwnd, &desc, None, None)
                     .and_then(|s| s.cast::<IDXGISwapChain3>())
             });
-            let swap_chain = match proxied {
+            let swap_chain = if let Some(swap_chain) = fsr { swap_chain } else { match proxied {
                 Some(Ok(swap_chain)) => {
                     crate::streamline::swap_chain_made(true, None);
                     // Frame generation must be off across a change between
@@ -10697,7 +10715,7 @@ impl Host {
                 None => crate::streamline::present_hooked(
                     factory.CreateSwapChainForHwnd(&self.queue, hwnd, &desc, None, None)?.cast::<IDXGISwapChain3>()?,
                 ),
-            };
+            } };
             // HDR10 output (`VICTORY_HDR`): colour space and metadata for the chain just made
             if crate::hdr::active() {
                 crate::hdr::set_swap_chain(&swap_chain);
@@ -10717,6 +10735,7 @@ impl Host {
                 meter: Meter::new(),
                 composer: None,
                 panel: panel::Panel::new(),
+                notice: panel::Notice::new(),
                 menu: menu::Menu::new(),
             })
         }
