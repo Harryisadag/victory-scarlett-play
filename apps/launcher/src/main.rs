@@ -167,7 +167,7 @@ impl App {
         }
         // A first start: NVIDIA-RT's settings from the preset this PC gets (8 GB cards, CPU-limited, mid, high-end).
         if first_start {
-            pcpresets::pick(&app.hw).apply(&mut app.cfg.rt);
+            pcpresets::pick(&app.hw).apply_for(&mut app.cfg.rt, app.hw.screen.1);
             app.cfg.save();
         }
         // A saved choice of a layer this folder does not have falls back to Scarlett.
@@ -1153,7 +1153,7 @@ impl App {
 fn ui_preset(ui: &mut egui::Ui, rt: &mut config::RtSettings, hw: &hardware::Hardware) -> bool {
     let mut changed = false;
     let suggested = pcpresets::pick(hw);
-    let now = pcpresets::matching(rt);
+    let now = pcpresets::matching(rt, hw.screen.1);
     ui.horizontal(|ui| {
         ui.label("PC preset:");
         egui::ComboBox::from_id_salt("pc-preset")
@@ -1167,7 +1167,7 @@ fn ui_preset(ui: &mut egui::Ui, rt: &mut config::RtSettings, hw: &hardware::Hard
                 for p in pcpresets::ALL {
                     let text = if p == suggested { format!("{} (picked for this PC)", p.label()) } else { p.label().to_owned() };
                     if ui.selectable_label(now == Some(p), text).on_hover_text(p.about()).clicked() && now != Some(p) {
-                        p.apply(rt);
+                        p.apply_for(rt, hw.screen.1);
                         changed = true;
                     }
                 }

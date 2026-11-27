@@ -42,10 +42,10 @@ pub fn build(cfg: &Config, hw: &Hardware, s: &Session, build: &str) -> serde_jso
         "launcher_version": crate::update::VERSION,
         "build": build,
         "engine": format!("{:?}", cfg.engine),
-        "pc_preset": crate::pcpresets::matching(&cfg.rt).map_or("custom", |p| p.name()),
+        "pc_preset": crate::pcpresets::matching(&cfg.rt, 0).map_or("custom", |p| p.name()),
         "preset": if cfg.engine == crate::config::Engine::NvidiaRt {
             // The relay shows 60 characters.
-            format!("[{}] NV-RT {} dlss:{} fg:{} rfx:{}{}{}{}", crate::pcpresets::matching(&cfg.rt).map_or("custom", |p| p.name()), cfg.rt.res, cfg.rt.dlss, cfg.rt.framegen, cfg.rt.reflex,
+            format!("[{}] NV-RT {} dlss:{} fg:{} rfx:{}{}{}{}", crate::pcpresets::matching(&cfg.rt, 0).map_or("custom", |p| p.name()), cfg.rt.res, cfg.rt.dlss, cfg.rt.framegen, cfg.rt.reflex,
                 if cfg.rt.fast { " fast" } else { " plain" }, if cfg.rt.ray_tracing { " RT" } else { "" }, if cfg.rt.hdr { " HDR" } else { "" })
         } else {
             format!("{} / {:?}{}", s.preset, cfg.lighting, if cfg.hooks { " / hooks" } else { "" })

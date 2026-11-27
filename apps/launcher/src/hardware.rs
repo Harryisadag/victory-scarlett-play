@@ -18,6 +18,8 @@ pub struct Hardware {
     pub shader_model_66: bool,
     pub mesh_shaders: bool,
     pub windows: String,
+    /// The main monitor's size in pixels (its current mode; Windows' scaling does not change it). (0, 0): unknown.
+    pub screen: (u32, u32),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
@@ -48,6 +50,7 @@ impl Hardware {
         };
         memory(&mut h);
         gpu(&mut h);
+        h.screen = screen();
         h
     }
 
@@ -270,4 +273,18 @@ pub fn set_tdr_delay_10() -> Result<(), String> {
         .status()
         .map_err(|e| e.to_string())?;
     if status.success() && tdr_delay() == Some(10) { Ok(()) } else { Err("not changed (the administrator prompt was declined?)".into()) }
+}
+
+/// The main monitor's current mode, in pixels.
+fn screen() -> (u32, u32) {
+    use windows_sys::Win32::Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW};
+    // SAFETY: a zeroed DEVMODEW with its size set; null names the main display.
+    unsafe {
+        let mut mode: DEVMODEW = std::mem::zeroed();
+        mode.dmSize = size_of::<DEVMODEW>() as u16;
+        if EnumDisplaySettingsW(std::ptr::null(), ENUM_CURRENT_SETTINGS, &mut mode) != 0 {
+            return (mode.dmPelsWidth, mode.dmPelsHeight);
+        }
+    }
+    (0, 0)
 }

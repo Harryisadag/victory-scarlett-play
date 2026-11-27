@@ -45,21 +45,30 @@ impl Preset {
         }
     }
 
-    /// Puts the preset's settings into `rt`; the player's own choices (window, lighting, HDR, mouse...) are kept.
+    /// Puts the preset's settings into `rt` for a PC with `screen_height` pixels of monitor (0: unknown); the
+    /// player's own choices (window, lighting, HDR, mouse...) are kept.
+    #[cfg(test)]
     pub fn apply(self, rt: &mut RtSettings) {
+        self.apply_for(rt, 0);
+    }
+
+    /// As [`Preset::apply`], with the monitor's height: on a 4K monitor the high-end and mid presets output the
+    /// game's own 3840x2160 with DLSS Performance (the 2560x1440 output patch leaves the interface laid out for 4K:
+    /// too big and cut off, a player's 4K monitor, 2026-11-27; the scene is drawn at 1920x1080 inside either way).
+    pub fn apply_for(self, rt: &mut RtSettings, screen_height: u32) {
         rt.ray_tracing = false;
         rt.mip_drop = 0;
         rt.reflex = "boost".into();
         match self {
             Preset::HighEnd => {
-                rt.res = if rt.res == "4k" { "4k".into() } else { "1440".into() };
-                rt.dlss = "quality".into();
+                rt.res = if rt.res == "4k" || screen_height >= 2160 { "4k".into() } else { "1440".into() };
+                rt.dlss = if rt.res == "4k" { "performance".into() } else { "quality".into() };
                 rt.series_s = false;
                 rt.framegen = 2;
             }
             Preset::Mid => {
-                rt.res = "1440".into();
-                rt.dlss = "quality".into();
+                rt.res = if screen_height >= 2160 { "4k".into() } else { "1440".into() };
+                rt.dlss = if rt.res == "4k" { "performance".into() } else { "quality".into() };
                 rt.series_s = false;
                 rt.framegen = 0;
             }
@@ -93,11 +102,11 @@ pub fn pick(hw: &Hardware) -> Preset {
     Preset::Mid
 }
 
-/// Which preset `rt` holds exactly, if any (to show "Custom" once the player changed something).
-pub fn matching(rt: &RtSettings) -> Option<Preset> {
+/// Which preset `rt` holds exactly for this monitor, if any (to show "Custom" once the player changed something).
+pub fn matching(rt: &RtSettings, screen_height: u32) -> Option<Preset> {
     ALL.into_iter().find(|p| {
         let mut probe = rt.clone();
-        p.apply(&mut probe);
+        p.apply_for(&mut probe, screen_height);
         probe == *rt
     })
 }
@@ -122,11 +131,16 @@ mod tests {
     fn a_preset_is_recognised_until_a_setting_changes() {
         let mut rt = RtSettings::default();
         Preset::Vram8.apply(&mut rt);
-        assert_eq!(matching(&rt), Some(Preset::Vram8));
+        assert_eq!(matching(&rt, 1440), Some(Preset::Vram8));
         rt.res = "4k".into();
-        assert_eq!(matching(&rt), None);
+        assert_eq!(matching(&rt, 1440), None);
         let mut rt = RtSettings::default();
         Preset::Mid.apply(&mut rt);
-        assert_eq!(matching(&rt), Some(Preset::Mid));
+        assert_eq!(matching(&rt, 1440), Some(Preset::Mid));
+        // On a 4K monitor the mid preset outputs 4K with DLSS Performance.
+        let mut rt = RtSettings::default();
+        Preset::Mid.apply_for(&mut rt, 2160);
+        assert_eq!((rt.res.as_str(), rt.dlss.as_str()), ("4k", "performance"));
+        assert_eq!(matching(&rt, 2160), Some(Preset::Mid));
     }
 }
