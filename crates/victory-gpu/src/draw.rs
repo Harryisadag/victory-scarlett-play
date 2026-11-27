@@ -4048,6 +4048,25 @@ impl State {
                             d.Width.abs_diff(w * 2) <= 1 && u64::from(d.Height).abs_diff(u64::from(h) * 2) <= 1
                         })
                 })
+            })
+            .or_else(|| {
+                // `VICTORY_AMBIENT_SPECULAR_HALF_DEPTH=1`: a depth of the rays' own size (R32_FLOAT), which a miss
+                // program of the indoor reflections holds at (1, 96) beside its image at (1, 104), with no depth of
+                // the whole picture in its tables (a player's session 2026-11-27 at 2560x1440 DLSS Quality: 3 of
+                // some 320 dispatches followed in 10 s, the rest "not ready"; floors indoors mirrored the sky,
+                // frosted and speckled). The stand-in scales by the depth's own size; whether this one holds the
+                // same reversed depth is what the switch is for. Off by default.
+                use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R32_FLOAT;
+                static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                if !*ON.get_or_init(|| std::env::var("VICTORY_AMBIENT_SPECULAR_HALF_DEPTH").is_ok_and(|v| v.trim() == "1")) {
+                    return None;
+                }
+                let half = image.as_ref().map(|(d, _)| (d.Width, d.Height));
+                scan(ResourceType::Srv, &|d| {
+                    d.Format == DXGI_FORMAT_R32_FLOAT
+                        && d.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
+                        && half == Some((d.Width, d.Height))
+                })
             }),
             Role::Radiance | Role::Air => image,
         };
