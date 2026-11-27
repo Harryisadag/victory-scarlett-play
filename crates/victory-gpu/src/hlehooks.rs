@@ -47,12 +47,18 @@ mod tests {
         fn f(_: usize, len: usize) {
             GOT.fetch_add(len as u64, Relaxed);
         }
+        // Registration is once per process: in a run of the whole suite the
+        // shared test host (`host::host`) may have registered its own first,
+        // and only then is `f` not the one called.
         on_title_memory_unmapped(f);
+        let ours = UNMAPPED.get().is_some_and(|g| std::ptr::fn_addr_eq(*g, f as fn(usize, usize)));
         let before = UNMAPPED_SEEN[1].load(Relaxed);
         title_memory_unmapped(0x1000_0000, 0x1_0000);
         title_memory_unmapped(0x1000_0000, 0);
         assert_eq!(UNMAPPED_SEEN[1].load(Relaxed) - before, 0x1_0000);
-        assert!(GOT.load(Relaxed) >= 0x1_0000);
+        if ours {
+            assert!(GOT.load(Relaxed) >= 0x1_0000);
+        }
     }
 }
 
