@@ -95,6 +95,41 @@ const FAST: &[(&str, &str)] = &[
 ];
 
 /// `victory play`'s arguments for these choices (`series_s`: the console mode the launcher picked).
+/// What in `rt` asks for more video memory than a card with `vram_gb` has (under 10 GB: 8 GB cards and the like).
+pub fn too_heavy_for(rt: &RtSettings, vram_gb: f64) -> Vec<&'static str> {
+    let mut out = Vec::new();
+    if vram_gb <= 0.0 || vram_gb >= 10.0 {
+        return out;
+    }
+    if rt.res == "4k" || rt.res == "wide" {
+        out.push("this resolution");
+    }
+    if !rt.series_s {
+        out.push("the Series X profile");
+    }
+    // Frame generation keeps 1.5-2 GB of the card for itself, even when it is only made ready.
+    if rt.framegen != 1 {
+        out.push("frame generation");
+    }
+    if rt.ray_tracing {
+        out.push("ray tracing");
+    }
+    out
+}
+
+/// The settings for an 8-10 GB card.
+pub fn fit_low_vram(rt: &mut RtSettings) {
+    if rt.res == "4k" || rt.res == "wide" {
+        rt.res = "1440".into();
+    }
+    rt.series_s = true;
+    rt.framegen = 1;
+    rt.ray_tracing = false;
+    if rt.dlss == "quality" || rt.dlss == "dlaa" || rt.dlss == "balanced" {
+        rt.dlss = "performance".into();
+    }
+}
+
 /// `mouse`: mouse look (the pointer captured in the window, F2 or ~ frees it). `cut_hold`: the title waits at a
 /// scene change until the scene has loaded (`VICTORY_CUT_HOLD=wait`, from the Scarlett build).
 pub fn args(rt: &RtSettings, series_s: bool, mouse: bool, cut_hold: bool) -> Vec<String> {
@@ -238,6 +273,16 @@ mod tests {
         assert!(!fill.iter().any(|x| x.starts_with("VICTORY_PROBE_RAYS")));
         let probes = args(&RtSettings { light: "probes".into(), ..Default::default() }, false, false, false);
         assert!(probes.contains(&"VICTORY_AMBIENT=".to_owned()));
+    }
+
+    #[test]
+    fn an_8_gb_card_at_4k_with_frame_generation_is_told_and_fixed() {
+        let mut rt = RtSettings { res: "4k".into(), framegen: 2, ..Default::default() };
+        assert_eq!(too_heavy_for(&rt, 7.8), ["this resolution", "the Series X profile", "frame generation"]);
+        assert!(too_heavy_for(&rt, 16.0).is_empty());
+        fit_low_vram(&mut rt);
+        assert!(too_heavy_for(&rt, 7.8).is_empty());
+        assert_eq!((rt.res.as_str(), rt.dlss.as_str(), rt.framegen, rt.series_s), ("1440", "performance", 1, true));
     }
 
     #[test]

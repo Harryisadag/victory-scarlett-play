@@ -139,6 +139,8 @@ enum JobKind {
 
 impl App {
     fn new() -> Self {
+        // A first start (no settings saved yet): the NVIDIA-RT settings are fitted to a card with little memory below.
+        let first_start = !config::home().join("launcher.json").is_file();
         let cfg = Config::load();
         let mut app = App {
             hw: Hardware::detect(),
@@ -157,6 +159,10 @@ impl App {
             save_note: None,
             cfg,
         };
+        if first_start && app.hw.vram_gb > 0.0 && app.hw.vram_gb < 10.0 {
+            rt::fit_low_vram(&mut app.cfg.rt);
+            app.cfg.save();
+        }
         // A saved choice of a layer this folder does not have falls back to Scarlett.
         if app.cfg.engine == Engine::NvidiaRt && app.rt_exe.is_none() {
             app.cfg.engine = Engine::Scarlett;
@@ -461,7 +467,7 @@ impl eframe::App for App {
                     });
                     let scarlett = self.cfg.engine == Engine::Scarlett;
                     if !scarlett {
-                        changed |= ui_rt(ui, &mut self.cfg.rt, self.hw.vendor == hardware::Vendor::Nvidia, &self.hw.gpu);
+                        changed |= ui_rt(ui, &mut self.cfg.rt, self.hw.vendor == hardware::Vendor::Nvidia, &self.hw.gpu, self.hw.vram_gb);
                         changed |= ui
                             .checkbox(&mut self.cfg.rt.scarlett_fixes, "Scarlett's fixes (depth planes in time for tiled lighting, storage workers per CPU core)")
                             .on_hover_text("Ported from the Scarlett build: VICTORY_PLANE_NOW and VICTORY_DSTORAGE_WORKERS=physical. Turn off to compare.")
@@ -729,8 +735,22 @@ impl eframe::App for App {
 const LOST_DEVICE_HELP: &str = "\nThe graphics card stopped answering. These layers push the card harder and longer than most games: take off any GPU overclock or undervolt (MSI Afterburner, the NVIDIA app's auto-tune) and test at stock clocks; and give Windows more time before it resets the card (the button below sets TdrDelay to 10 s).";
 
 /// The NVIDIA-RT layer's choices (its `PLAY.cmd`'s ten). Returns whether one changed.
-fn ui_rt(ui: &mut egui::Ui, rt: &mut config::RtSettings, nvidia: bool, gpu: &str) -> bool {
+fn ui_rt(ui: &mut egui::Ui, rt: &mut config::RtSettings, nvidia: bool, gpu: &str, vram_gb: f64) -> bool {
     let mut changed = false;
+    // A card with little memory and settings that need more: a report from an RTX 3060 Ti (8 GB) at 4K with frame
+    // generation asked for (2026-11-27) had the card full, 12.6 GB spilled into the PC's memory, 13,220 textures
+    // held back in 5 s for want of room, 1% lows of 3.3 fps.
+    let heavy = rt::too_heavy_for(rt, vram_gb);
+    if !heavy.is_empty() {
+        ui.colored_label(
+            Color32::from_rgb(220, 80, 70),
+            format!("⚠ {vram_gb:.0} GB of video memory is not enough for: {}. Textures stay blurry or missing and the game stutters.", heavy.join(", ")),
+        );
+        if ui.button("Use the settings for cards with 8-10 GB").on_hover_text("2560x1440, Series S, DLSS Performance, frame generation not loaded").clicked() {
+            rt::fit_low_vram(rt);
+            changed = true;
+        }
+    }
     if !nvidia {
         ui.colored_label(Color32::from_rgb(210, 160, 50), "⚠ This layer is made for NVIDIA RTX cards: DLSS, frame generation and Reflex need one.");
     }
