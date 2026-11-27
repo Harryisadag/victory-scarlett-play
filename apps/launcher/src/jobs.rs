@@ -263,7 +263,9 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
             let mut cmd = crate::rt::play_command(&exe, &cfg)?;
             // (NVIDIA-RT: `refresh` asks for every shader to be made first, with this start's settings, then the game.)
             if refresh {
-                cmd.arg("--preload");
+                // Only the pipelines earlier sessions drew with (engine-rt b86a12fa): minutes, not the 40-50 of every one
+                // the title ever created.
+                cmd.args(["--preload", "--set", "VICTORY_PRELOAD_USED=1"]);
             }
             cmd
         } else {
