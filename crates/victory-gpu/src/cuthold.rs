@@ -7,8 +7,13 @@
 //! for them. A burst is told from the steady streaming of play by its jump: the reads waiting go from under half the
 //! threshold to over it between two frames. From then on frames are not presented (the window keeps the last one; the
 //! title runs on unaware) while the reads waiting stay over a quarter of the threshold, for at most
-//! `VICTORY_CUT_HOLD_MS` (800). After a hold, none starts again for `VICTORY_CUT_HOLD_GAP_MS` (2000).
+//! `VICTORY_CUT_HOLD_MS` (1200). After a hold, none starts again for `VICTORY_CUT_HOLD_GAP_MS` (2000).
 //! `VICTORY_CUT_HOLD_MIN` (48): reads waiting that make a burst.
+//!
+//! The same for pipelines: draws that ask for pipelines not compiled yet are dropped, so a frame shown then lacks
+//! whole objects. A jump of those over `VICTORY_CUT_HOLD_PIPELINES` (16) starts a hold too, and it lasts while a
+//! quarter of that many are still asked for. (A first measurement: the reads after a cut were done in 30-70 ms, but
+//! a scene went on missing objects for seconds while its pipelines compiled.)
 //!
 //! The reads waiting come from the runtime's storage scheduler ([`on_stream_backlog`]); without it nothing is held.
 
@@ -26,6 +31,7 @@ pub fn on_stream_backlog(f: fn() -> u64) {
 struct Settings {
     on: bool,
     min: u64,
+    pipelines: u64,
     most: Duration,
     gap: Duration,
 }
@@ -37,11 +43,12 @@ fn settings() -> &'static Settings {
         let s = Settings {
             on: std::env::var("VICTORY_CUT_HOLD").is_ok_and(|v| v.trim() == "1"),
             min: num("VICTORY_CUT_HOLD_MIN", 48).max(4),
-            most: Duration::from_millis(num("VICTORY_CUT_HOLD_MS", 800).min(5000)),
+            pipelines: num("VICTORY_CUT_HOLD_PIPELINES", 16).max(4),
+            most: Duration::from_millis(num("VICTORY_CUT_HOLD_MS", 1200).min(5000)),
             gap: Duration::from_millis(num("VICTORY_CUT_HOLD_GAP_MS", 2000)),
         };
         if s.on {
-            tracing::info!(min = s.min, most_ms = s.most.as_millis() as u64, gap_ms = s.gap.as_millis() as u64, "scene-change hold (VICTORY_CUT_HOLD=1)");
+            tracing::info!(min = s.min, pipelines = s.pipelines, most_ms = s.most.as_millis() as u64, gap_ms = s.gap.as_millis() as u64, "scene-change hold (VICTORY_CUT_HOLD=1)");
         }
         s
     })
@@ -49,8 +56,9 @@ fn settings() -> &'static Settings {
 
 #[derive(Default)]
 struct State {
-    /// Reads waiting at the frame before.
+    /// Reads waiting and pipelines asked for at the frame before.
     last: u64,
+    last_asked: u64,
     /// The hold under way: when it began, frames held, reads waiting at its start.
     holding: Option<(Instant, u64, u64)>,
     /// When the last hold ended.
@@ -70,13 +78,15 @@ pub(crate) fn hold(frame: u64) -> bool {
         return false;
     };
     let waiting = backlog();
+    let asked = crate::pipeline::asked_waiting();
     let mut guard = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let st = guard.get_or_insert_with(State::default);
     let last = std::mem::replace(&mut st.last, waiting);
+    let last_asked = std::mem::replace(&mut st.last_asked, asked);
     let now = Instant::now();
     if let Some((began, frames, at_start)) = st.holding {
         let over = now.duration_since(began) >= s.most;
-        if waiting * 4 >= s.min && !over {
+        if (waiting * 4 >= s.min || asked * 4 >= s.pipelines) && !over {
             st.holding = Some((began, frames + 1, at_start));
             return true;
         }
@@ -89,6 +99,7 @@ pub(crate) fn hold(frame: u64) -> bool {
             held_ms = now.duration_since(began).as_millis() as u64,
             reads_at_start = at_start,
             reads_now = waiting,
+            pipelines_now = asked,
             cut_short = over,
             holds = st.holds,
             "scene-change hold ended"
@@ -99,7 +110,9 @@ pub(crate) fn hold(frame: u64) -> bool {
     if frame < 120 || st.ended.is_some_and(|e| now.duration_since(e) < s.gap) {
         return false;
     }
-    if waiting >= s.min && last * 2 < s.min {
+    let reads_burst = waiting >= s.min && last * 2 < s.min;
+    let pipelines_burst = asked >= s.pipelines && last_asked * 2 < s.pipelines;
+    if reads_burst || pipelines_burst {
         st.holding = Some((now, 1, waiting));
         return true;
     }

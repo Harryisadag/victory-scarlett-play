@@ -304,6 +304,13 @@ pub(crate) fn waiting() -> u64 {
     WAITING.load(Ordering::Relaxed)
 }
 
+/// (victory-scarlett-play, `VICTORY_CUT_HOLD`) Pipelines a draw has asked for that are not being compiled yet: what
+/// a frame shown now would lack.
+pub(crate) fn asked_waiting() -> u64 {
+    let queue = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
+    (queue.screen.len() + queue.requested.len()) as u64
+}
+
 /// (fxceless a35c557) Pipelines made again for the formats bound at a draw, since the start.
 pub(crate) static VARIANTS: AtomicU64 = AtomicU64::new(0);
 

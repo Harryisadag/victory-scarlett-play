@@ -499,6 +499,12 @@ pub(crate) fn making() -> u64 {
     make::waiting()
 }
 
+/// Host pipelines a draw asked for that are not being compiled yet (`cuthold`).
+#[cfg(windows)]
+pub(crate) fn asked_waiting() -> u64 {
+    make::asked_waiting()
+}
+
 /// Draws and dispatches dropped since the last [`take_drops`], by reason
 /// (diagnostics).
 #[cfg(all(windows, feature = "diagnostics"))]
