@@ -19,7 +19,7 @@ pub fn available() -> bool {
 
 /// What a report holds, shown to the player before they agree.
 pub const WHAT: &str = "Your CPU, GPU, graphics driver, RAM and Windows version; the frame rate and memory use of each \
-session; the end of the game's log when it crashes; and (if you allow it) up to 4 small screenshots of the game. \
+session; the end of the game's log when it crashes; and (if you allow it) up to 4 small screenshots of the game window, taken only while the game is the window in front. \
 No names, accounts, files or IP-based tracking; an anonymous random id tells reports from one PC apart.";
 
 pub fn build(cfg: &Config, hw: &Hardware, s: &Session, build: &str) -> serde_json::Value {

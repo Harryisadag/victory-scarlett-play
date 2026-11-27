@@ -186,7 +186,9 @@ pub fn private_gb(child: &Child) -> f64 {
 pub fn screenshot(pid: u32) -> Option<Vec<u8>> {
     use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
     use windows_sys::Win32::Graphics::Gdi::*;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowRect, GetWindowThreadProcessId, IsWindowVisible};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetClientRect, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+    };
 
     struct Find {
         pid: u32,
@@ -218,11 +220,26 @@ pub fn screenshot(pid: u32) -> Option<Vec<u8>> {
     if f.hwnd.is_null() || f.area < 200 * 200 {
         return None;
     }
+    // Privacy: the copy is of the screen, so only while the game's window is the one in front and not minimised
+    // (otherwise another program's window - a browser, a chat - could be in the picture). Only its client area: no
+    // title bar.
+    // SAFETY: plain window queries on a handle from the enumeration.
+    unsafe {
+        if GetForegroundWindow() != f.hwnd || IsIconic(f.hwnd) != 0 {
+            return None;
+        }
+    }
     // SAFETY: GDI calls on a screen DC and objects created and released here.
     let (w, h, pixels) = unsafe {
-        let mut r: RECT = std::mem::zeroed();
-        GetWindowRect(f.hwnd, &mut r);
+        let mut c: RECT = std::mem::zeroed();
+        GetClientRect(f.hwnd, &mut c);
+        let mut origin = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
+        ClientToScreen(f.hwnd, &mut origin);
+        let r = RECT { left: origin.x, top: origin.y, right: origin.x + c.right, bottom: origin.y + c.bottom };
         let (w, h) = (r.right - r.left, r.bottom - r.top);
+        if w < 200 || h < 200 {
+            return None;
+        }
         let screen = GetDC(std::ptr::null_mut());
         let mem = CreateCompatibleDC(screen);
         let bmp = CreateCompatibleBitmap(screen, w, h);
