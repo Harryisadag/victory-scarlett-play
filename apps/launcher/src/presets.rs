@@ -142,6 +142,9 @@ pub fn environment(cfg: &Config, hw: &Hardware) -> (Vec<(String, String)>, &'sta
         }
         Lighting::RayTraced => set("VICTORY_BVH_BUILDER", "1"),
     }
+    if cfg.cut_hold {
+        set("VICTORY_CUT_HOLD", "1");
+    }
     if cfg.hooks {
         set("VICTORY_GPU_ONLY", "1");
         set("VICTORY_KNOWN_WRITES", "1");

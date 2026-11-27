@@ -41,6 +41,7 @@ pub mod chunks; // (fox port A) F21 arena chunk meter (VICTORY_CHUNK_METER)
 pub mod hangwatch; // (fox port A) VICTORY_HANG_WATCH_S
 pub mod lockmeter; // (coder H) F23 engine buffer lock meter (VICTORY_LOCK_METER)
 pub mod knownwrites; // (coder J) own dirty ledger for buffer copies (VICTORY_KNOWN_WRITES=verify|1)
+pub mod cuthold; // (victory-scarlett-play) VICTORY_CUT_HOLD=1: the last picture stays at a scene change while streaming catches up
 pub mod hlehooks; // (fox port A) runtime notes with no fox GPU function yet (title_memory_unmapped)
 #[cfg(windows)] pub mod shell; // (fox port A) caption text and the game's logo icons
 #[cfg(all(windows, feature = "diagnostics"))]

@@ -671,6 +671,16 @@ struct Job {
 // SAFETY: as for `Lane`.
 unsafe impl Send for Job {}
 
+/// Reads submitted and not finished, over every queue: not started yet and running
+/// (`victory_gpu::cuthold`: a burst of them right after a scene change).
+fn stream_backlog() -> u64 {
+    let Some(scheduler) = scheduler() else {
+        return 0;
+    };
+    let lanes = scheduler.lock();
+    lanes.lanes.values().map(|l| (l.reads.len() + l.running.len()) as u64).sum()
+}
+
 /// The scheduler, with its workers started on first use; `None` if not
 /// even one worker could start.
 fn scheduler() -> Option<&'static Scheduler> {
@@ -700,6 +710,8 @@ fn scheduler() -> Option<&'static Scheduler> {
         })
         .as_ref()?;
     STARTED.call_once(|| {
+        // (VICTORY_CUT_HOLD) The GPU side's scene-change hold asks how many reads wait.
+        victory_gpu::cuthold::on_stream_backlog(stream_backlog);
         let workers = worker_count();
         let started = (0..workers)
             .filter(|i| {

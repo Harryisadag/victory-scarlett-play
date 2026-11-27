@@ -26,6 +26,8 @@ pub struct Config {
     pub console: Option<String>,
     /// Scarlett's memory hooks (faster; a few small textures can show old contents for a moment).
     pub hooks: bool,
+    /// Experimental: keep the last picture at a scene change while streaming catches up (`VICTORY_CUT_HOLD=1`).
+    pub cut_hold: bool,
     /// `None`: not answered yet - reports are on by default (the first-start notice says so); `Some(false)`: off.
     pub reports: Option<bool>,
     pub report_screenshots: bool,
@@ -44,6 +46,7 @@ impl Default for Config {
             lighting: Lighting::Fast,
             console: None,
             hooks: false,
+            cut_hold: false,
             reports: None,
             report_screenshots: true,
             install_id: new_id(),

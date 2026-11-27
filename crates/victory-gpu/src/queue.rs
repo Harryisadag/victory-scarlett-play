@@ -1105,6 +1105,10 @@ fn show_planes(
     let Some(host) = crate::host::host() else {
         return;
     };
+    // (VICTORY_CUT_HOLD=1) Right after a scene change, while the title's streaming catches up, the last picture stays.
+    if crate::cuthold::hold(what.frame) {
+        return;
+    }
     let shown = host.present_planes(texture, state, overlay, what.frame);
     #[cfg(feature = "diagnostics")]
     blinks(what.frame, what.resource as This, state, shown);

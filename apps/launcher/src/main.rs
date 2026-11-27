@@ -405,6 +405,10 @@ impl eframe::App for App {
                             .on_hover_text("Lower resolution and smaller memory budgets: easier on the graphics card and VRAM; does little for a slow CPU")
                             .changed();
                     });
+                    changed |= ui
+                        .checkbox(&mut self.cfg.cut_hold, "Hold the picture at scene changes until the scene has loaded (experimental)")
+                        .on_hover_text("After a camera cut the last picture stays up to 0.8 s while the new scene streams in, instead of showing black ground and missing textures")
+                        .changed();
                     changed |= ui.checkbox(&mut self.cfg.hooks, "Faster memory hooks (10-15 ms a frame less; a few small textures may flicker)").changed();
                     if report::available() {
                         let mut on = self.cfg.reports != Some(false);
