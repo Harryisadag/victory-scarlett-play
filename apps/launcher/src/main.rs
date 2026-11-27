@@ -2,6 +2,7 @@
 //! and (opt-in) sends reports.
 #![windows_subsystem = "windows"]
 
+mod audio;
 mod config;
 mod game;
 mod hardware;

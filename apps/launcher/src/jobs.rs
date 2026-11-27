@@ -167,8 +167,18 @@ fn record_opening(exe: &Path, cfg: &Config, hw: &Hardware, s: &Arc<Mutex<Status>
     let mut child = game::spawn_logged(cmd, config::logs_dir().join("setup-opening.log"), watch.clone(), None)
         .map_err(|e| format!("could not start the game: {e}"))?;
     let started = Instant::now();
+    let pid = child.id();
+    // Silent: the game's audio session is muted (it opens one a few seconds in, so this is repeated). Windows
+    // remembers an app's mute; the marker tells Play to unmute once if this run is cut off before unmuting.
+    let marker = config::home().join("recording-muted");
+    let _ = std::fs::write(&marker, pid.to_string());
+    let mut next_mute = Instant::now();
     let r = loop {
         let t = started.elapsed().as_secs();
+        if Instant::now() >= next_mute {
+            crate::audio::set_mute(pid, true);
+            next_mute = Instant::now() + Duration::from_secs(2);
+        }
         if cancel.load(Ordering::Relaxed) {
             break Err("cancelled".to_owned());
         }
@@ -188,6 +198,9 @@ fn record_opening(exe: &Path, cfg: &Config, hw: &Hardware, s: &Arc<Mutex<Status>
         );
         std::thread::sleep(Duration::from_millis(500));
     };
+    // Unmuted before it ends, so the mute Windows remembers for victory.exe does not carry over to Play.
+    crate::audio::set_mute(pid, false);
+    let _ = std::fs::remove_file(&marker);
     let _ = child.kill();
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&fresh);
@@ -224,6 +237,9 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
         let mut child = game::spawn_logged(cmd, log.clone(), watch.clone(), None).map_err(|e| format!("could not start the game: {e}"))?;
         let started = Instant::now();
         let mut next_shot = Duration::from_secs(4 * 60);
+        // A setup recording cut off while muted left victory.exe muted in Windows' memory: unmuted once here.
+        let marker = config::home().join("recording-muted");
+        let mut unmute_left = if marker.is_file() { 60 } else { 0 };
         let code = loop {
             if let Some(code) = child.try_wait().map_err(|e| e.to_string())? {
                 break Some(code);
@@ -231,6 +247,13 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
             if cancel.load(Ordering::Relaxed) {
                 let _ = child.kill();
                 break child.wait().ok();
+            }
+            if unmute_left > 0 {
+                unmute_left -= 1;
+                if crate::audio::set_mute(child.id(), false) > 0 || unmute_left == 0 {
+                    unmute_left = 0;
+                    let _ = std::fs::remove_file(&marker);
+                }
             }
             let mem = game::private_gb(&child);
             let (avg, _, _) = {
