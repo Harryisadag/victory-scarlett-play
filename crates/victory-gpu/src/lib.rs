@@ -17,6 +17,8 @@
 
 #[cfg(windows)]
 mod ambient;
+/// The scene-change hold (`VICTORY_CUT_HOLD`), from the Scarlett build.
+pub mod cuthold;
 #[cfg(windows)]
 mod aspect;
 #[cfg(all(windows, feature = "diagnostics"))]

@@ -303,6 +303,13 @@ pub(crate) fn take_left_out() -> u64 {
     LEFT_OUT.swap(0, Ordering::Relaxed)
 }
 
+/// (`VICTORY_CUT_HOLD`, from the Scarlett build) Pipelines a draw has asked for that are not being compiled yet:
+/// what a frame shown now would lack.
+pub(crate) fn asked_waiting() -> u64 {
+    let queue = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
+    (queue.screen.len() + queue.requested.len()) as u64
+}
+
 /// Pipelines queued and not made yet (for the frame line).
 pub(crate) fn waiting() -> u64 {
     WAITING.load(Ordering::Relaxed)

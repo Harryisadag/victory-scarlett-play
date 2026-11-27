@@ -603,6 +603,12 @@ pub(crate) fn host_pipeline<'a>(this: This) -> Option<&'a host::HostPipeline> {
     make::ready(&pipeline(this).host)
 }
 
+/// Host pipelines a draw asked for that are not being compiled yet (`cuthold`).
+#[cfg(windows)]
+pub(crate) fn asked_waiting() -> u64 {
+    make::asked_waiting()
+}
+
 /// Host pipelines queued and not made yet.
 #[cfg(windows)]
 pub(crate) fn making() -> u64 {

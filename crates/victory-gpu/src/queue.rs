@@ -975,6 +975,10 @@ extern "system" fn present(
 ) -> HRESULT {
     #[cfg(not(windows))]
     let _ = this;
+    // (VICTORY_CUT_HOLD=wait, from the Scarlett build) At a scene change the
+    // title waits here until what the scene needs has arrived.
+    #[cfg(windows)]
+    crate::cuthold::wait(FRAMES.load(Ordering::Relaxed) + 1);
     #[cfg(all(windows, feature = "diagnostics"))]
     crate::copystat::present_begins();
     let called = crate::timeline::span("the title's Present");
@@ -1195,6 +1199,10 @@ fn show_planes(
     let Some(host) = crate::host::host() else {
         return;
     };
+    // (VICTORY_CUT_HOLD=1) Right after a scene change, while the title's streaming catches up, the last picture stays.
+    if crate::cuthold::hold(what.frame) {
+        return;
+    }
     let shown = host.present_planes_with(texture, state, overlay, what.spaces, what.frame);
     #[cfg(feature = "diagnostics")]
     blinks(what.frame, what.resource as This, state, shown);
