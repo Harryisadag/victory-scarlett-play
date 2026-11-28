@@ -283,10 +283,23 @@ pub fn play_command(exe: &Path, cfg: &Config) -> Result<Command, String> {
     // AMD's FidelityFX DLLs for FSR 3 frame generation, where the launcher fetched them.
     cmd.env("VICTORY_FIDELITYFX_DIR", crate::fsr::dir());
     cmd.arg("play").arg(crate::game::game_exe(game_dir)).args(args(&cfg.rt, cfg.rt.series_s, cfg.kbm, cfg.rt.cut_hold));
+    cmd.args(low_vram_args(crate::hardware::vram_gb()));
     if let Some(dir) = exe.parent() {
         cmd.current_dir(dir);
     }
     Ok(cmd)
+}
+
+/// For cards under 10 GB: textures picked by index only up to 70% of the card's budget (the layer's line is 90% of
+/// it there). An RTX 3060 Ti's 1.5-2 hour sessions went past its 7.1 GB budget (7.2-7.4 GB in use), and the card's
+/// time per frame went from 4-8 ms to 20-26 ms as Windows moved its memory out (a player's friend, 2026-11-28);
+/// RAZDA4A XEN's 8 GB Safe Mode keeps 65%.
+fn low_vram_args(vram_gb: f64) -> Vec<String> {
+    if vram_gb > 0.0 && vram_gb < 10.0 {
+        vec!["--set".into(), "VICTORY_TEXTURE_ROOM_PERCENT=70".into()]
+    } else {
+        Vec::new()
+    }
 }
 
 /// The crash files the layer leaves beside its exe (`crash-<run>.log`, `crash-<run>.dmp`) written after `since`.
@@ -336,6 +349,12 @@ mod tests {
         assert!(too_heavy_for(&rt, 7.8).is_empty());
         assert_eq!((rt.res.as_str(), rt.dlss.as_str(), rt.framegen, rt.series_s, rt.mip_drop), ("1440", "performance", 1, true, 1));
         assert!(args(&rt, true, false, false).contains(&"VICTORY_TEXTURE_MIP_DROP=1".to_owned()));
+    }
+
+    #[test]
+    fn only_small_cards_get_a_lower_texture_line() {
+        assert_eq!(super::low_vram_args(8.0), ["--set", "VICTORY_TEXTURE_ROOM_PERCENT=70"]);
+        assert!(super::low_vram_args(16.0).is_empty() && super::low_vram_args(0.0).is_empty());
     }
 
     #[test]

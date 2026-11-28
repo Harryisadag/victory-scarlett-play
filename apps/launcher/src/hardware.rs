@@ -153,6 +153,13 @@ fn memory(h: &mut Hardware) {
     }
 }
 
+/// The video memory of the card the game uses, in GB (0 if unknown).
+pub fn vram_gb() -> f64 {
+    let mut h = Hardware::default();
+    gpu(&mut h);
+    h.vram_gb
+}
+
 fn gpu(h: &mut Hardware) {
     use windows::Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL_12_0;
     use windows::Win32::Graphics::Direct3D12::*;
