@@ -37,6 +37,8 @@ pub struct Session {
     pub crash_files: Vec<PathBuf>,
     /// What probably went wrong, in plain words (`checks::hint`).
     pub hint: Option<String>,
+    /// The session's log in the logs folder (for the report's summary).
+    pub log: PathBuf,
 }
 
 pub struct Job {
@@ -451,7 +453,7 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
         st.step = format!("Game ended: {outcome}");
         st.detail = hint.clone().unwrap_or_default();
         let preset = if rt { "nvidia-rt".to_owned() } else { preset.name.to_owned() };
-        st.session = Some(Session { minutes, outcome, watch, preset, crash_files, hint });
+        st.session = Some(Session { minutes, outcome, watch, preset, crash_files, hint, log: log.clone() });
         Ok(())
     })
 }
