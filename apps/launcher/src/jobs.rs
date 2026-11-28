@@ -378,9 +378,11 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
             }
             let last = watch.lock().unwrap().samples.last().copied();
             // A preload under way (before the first frame): its step, how far, and the time left.
-            if last.is_none()
-                && let Some((step, fraction, detail)) = preload_progress(&watch.lock().unwrap().progress)
-            {
+            // Taken out of the lock first: a guard made in an `if let` lives through the block, and the block sleeps.
+            // Holding the lock there for a second each round let the output's readers through about once a second;
+            // the preload's pipe filled and its threads stopped on their next line (step 3 stood for minutes).
+            let preloading = if last.is_none() { preload_progress(&watch.lock().unwrap().progress) } else { None };
+            if let Some((step, fraction, detail)) = preloading {
                 say(s, step, &detail, fraction);
                 std::thread::sleep(Duration::from_millis(1000));
                 continue;
