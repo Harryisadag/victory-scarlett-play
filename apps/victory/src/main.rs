@@ -125,6 +125,8 @@ struct Cli {
     command: Command,
 }
 
+// Parsed once at start: the size of its largest variant does not matter.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum Command {
     /// Summarise one PE image: headers, sections, imports, TLS, build id.
@@ -233,6 +235,11 @@ enum Command {
     Preload {
         /// The title's folder (default: the configured game folder).
         paths: Vec<PathBuf>,
+        /// Threads and processes for each of its steps, to leave the rest of
+        /// the PC free (default: `VICTORY_PRELOAD_JOBS`, else each step's
+        /// own: every core to translate, two thirds of them to make).
+        #[arg(long)]
+        jobs: Option<usize>,
     },
     /// Play: the title with this fork's settings, as a start with no
     /// command at all does (a double click on the program beside the
@@ -409,18 +416,25 @@ fn main() -> Result<()> {
         #[cfg(windows)]
         Command::Warm { jobs, limit, again, used, these } => warm::run(jobs, limit, again, used, these),
         #[cfg(windows)]
-        Command::Preload { paths } => {
+        Command::Preload { paths, jobs } => {
             #[cfg(feature = "diagnostics")]
             victory_loader::dump_stacks_on_schedule();
+            // The launcher and the F1 menu's restart pass it as a switch.
+            let jobs = jobs
+                .or_else(|| std::env::var("VICTORY_PRELOAD_JOBS").ok()?.trim().parse().ok())
+                .filter(|&n| n > 0);
+            if let Some(n) = jobs {
+                println!("Preloading on {n} threads at a time (VICTORY_PRELOAD_JOBS / --jobs).");
+            }
             play::explain_preload();
-            translate::precompile(paths, None)?;
+            translate::precompile(paths, jobs)?;
             // `VICTORY_PRELOAD_USED=1` (off by default; the launcher sets it): only the pipelines earlier runs drew
             // with (`early-pipelines.txt`), not every one the title ever created. On a PC with a few hours played:
             // 3,395 of 88,657, the difference between a couple of minutes and 40-50 (2026-11-27). The others are
             // made when first drawn, as without a preload.
             let used = std::env::var_os("VICTORY_PRELOAD_USED").is_some_and(|v| v == "1");
-            warm::run(None, None, false, used, None)?;
-            warm::into_library(None, used)
+            warm::run(jobs, None, false, used, None)?;
+            warm::into_library(jobs, used)
         }
         #[cfg(windows)]
         Command::Play(_) => unreachable!("handled above"),
@@ -504,6 +518,20 @@ fn show_config() -> Result<()> {
     Ok(())
 }
 
+/// Paths given on the command line, or the configured game + test titles.
+pub(crate) fn default_paths(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
+    if !paths.is_empty() {
+        return Ok(paths);
+    }
+    let cfg = victory_core::Config::load()?;
+    let all: Vec<PathBuf> = cfg.game_dir.into_iter().chain(cfg.test_titles).collect();
+    anyhow::ensure!(
+        !all.is_empty(),
+        "no paths given and none configured (see victory.example.toml)"
+    );
+    Ok(all)
+}
+
 #[cfg(test)]
 mod tests {
     /// A D3D12Core.dll's VS_FIXEDFILEINFO: signature, structure version, then
@@ -526,18 +554,4 @@ mod tests {
         assert_eq!(super::agility_version(&[0u8; 64]), None);
         assert_eq!(super::agility_version(&core_bytes(1, 620)[..48]), None);
     }
-}
-
-/// Paths given on the command line, or the configured game + test titles.
-pub(crate) fn default_paths(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
-    if !paths.is_empty() {
-        return Ok(paths);
-    }
-    let cfg = victory_core::Config::load()?;
-    let all: Vec<PathBuf> = cfg.game_dir.into_iter().chain(cfg.test_titles).collect();
-    anyhow::ensure!(
-        !all.is_empty(),
-        "no paths given and none configured (see victory.example.toml)"
-    );
-    Ok(all)
 }
