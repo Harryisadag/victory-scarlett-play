@@ -410,6 +410,8 @@ fn main() -> Result<()> {
         Command::Warm { jobs, limit, again, used, these } => warm::run(jobs, limit, again, used, these),
         #[cfg(windows)]
         Command::Preload { paths } => {
+            #[cfg(feature = "diagnostics")]
+            victory_loader::dump_stacks_on_schedule();
             play::explain_preload();
             translate::precompile(paths, None)?;
             // `VICTORY_PRELOAD_USED=1` (off by default; the launcher sets it): only the pipelines earlier runs drew
