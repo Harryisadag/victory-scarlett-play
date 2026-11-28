@@ -8617,10 +8617,11 @@ fn heap_sync_first() -> bool {
 static HEAP_SYNC_FIRST: [std::sync::atomic::AtomicU64; 2] = [const { std::sync::atomic::AtomicU64::new(0) }; 2];
 
 /// `VICTORY_METER_THREAD=1`: the frame meter's five-second lines are made on a thread of their own
-/// (`victory-meter`), not on the presenting thread. Off by default until measured.
+/// (`victory-meter`), not on the presenting thread. On by default (`=0`: as before): with it on, "the frame
+/// meter" left the frames' chains in a player's timeline (it had 49.5 ms on one frame without).
 fn meter_thread() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| crate::switch::on("VICTORY_METER_THREAD"))
+    *ON.get_or_init(|| std::env::var_os("VICTORY_METER_THREAD").is_none_or(|v| v != "0"))
 }
 
 /// Runs `lines` on the meter's thread (made at the first call); on this one if it cannot be made.
