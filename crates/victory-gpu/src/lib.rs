@@ -16,6 +16,7 @@
 //! `present` (swap chain).
 
 #[cfg(windows)]
+mod ahead;
 mod ambient;
 /// The scene-change hold (`VICTORY_CUT_HOLD`), from the Scarlett build.
 pub mod cuthold;

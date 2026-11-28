@@ -701,15 +701,24 @@ fn scheduler() -> Option<&'static Scheduler> {
         // (VICTORY_CUT_HOLD) The GPU side's scene-change hold asks how many reads wait.
         victory_gpu::cuthold::on_stream_backlog(stream_backlog);
         let workers = worker_count();
+        let priority = std::env::var("VICTORY_DSTORAGE_PRIORITY").ok().and_then(|v| v.trim().parse::<i32>().ok()).map_or(-1, |p| p.clamp(-2, 2));
         let started = (0..workers)
             .filter(|i| {
                 std::thread::Builder::new()
                     .name(format!("dstorage {i}"))
-                    .spawn(|| work(scheduler))
+                    .spawn(move || {
+                        #[cfg(windows)]
+                        if priority != 0 {
+                            use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority};
+                            // SAFETY: this thread's own priority.
+                            unsafe { SetThreadPriority(GetCurrentThread(), priority) };
+                        }
+                        work(scheduler)
+                    })
                     .is_ok()
             })
             .count();
-        tracing::info!(workers = started, "dstorage: workers");
+        tracing::info!(workers = started, priority, "dstorage: workers (VICTORY_DSTORAGE_WORKERS, VICTORY_DSTORAGE_PRIORITY)");
     });
     Some(scheduler)
 }
