@@ -221,6 +221,17 @@ pub fn args(rt: &RtSettings, series_s: bool, mouse: bool, cut_hold: bool) -> Vec
     if rt.clean_skin {
         set("VICTORY_TEXTURE_NO_WAIT", "0");
     }
+    if rt.card_boost {
+        for (k, v) in [
+            ("VICTORY_CARD_BUFFERS_MIN_KB", "64"),
+            ("VICTORY_CARD_BUFFERS_MB", "1536"),
+            ("VICTORY_CARD_WINDOWS_MB", "1024"),
+            ("VICTORY_WINDOWS_BAR_MB", "4096"),
+            ("VICTORY_PIPELINE_WORKERS", "3"),
+        ] {
+            set(k, v);
+        }
+    }
     if rt.indoor_reflections {
         // Reflections whose rays found nothing held to 0.15 of the light around (engine-rt 8b3e87b5, after kyokyotosh):
         // the frosted, blue-white floors indoors gone in a test from the player's save (1 was too weak).

@@ -71,6 +71,10 @@ pub struct RtSettings {
     /// Indoor floors' reflections held to the room's light, not the sky (`VICTORY_REFLECT_BOUND=0.15`): the
     /// frosted floors indoors. Off: outdoors it may dull cars' and windows' reflections (not tried yet).
     pub indoor_reflections: bool,
+    /// Vice-Tay's memory settings for 16 GB cards (TaynanGT/Vice-Tay scripts/play.ps1, `Get-AutoNvidiaSettings`): the
+    /// title's small buffers and read windows in the card's memory, 4 GB of them through Resizable BAR, 3 pipeline
+    /// workers. Measured there on an 8-core PC with an RTX 5080: 16 -> 27 fps in one scene. Off: not measured here.
+    pub card_boost: bool,
     /// Large textures start this many levels down (`VICTORY_TEXTURE_MIP_DROP`, LightYearZh; 0..=3): for 8 GB cards.
     pub mip_drop: u32,
     /// Kemerd's pipelines made from the title's loose pieces (`VICTORY_PIPELINE_PIECES`, part of the fast set): more
@@ -102,6 +106,7 @@ impl Default for RtSettings {
             first_wait_ms: 0,
             clean_skin: false,
             indoor_reflections: false,
+            card_boost: false,
             mip_drop: 0,
             pieces: true,
         }

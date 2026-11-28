@@ -904,6 +904,10 @@ fn ui_rt(ui: &mut egui::Ui, rt: &mut config::RtSettings, nvidia: bool, gpu: &str
         .on_hover_text("victory-sley-fork measured no more pixelated, noisy skin with textures refreshed only once memory holds still")
         .changed();
     changed |= ui
+        .checkbox(&mut rt.card_boost, "16 GB card memory boost (experimental; needs Resizable BAR on)")
+        .on_hover_text("Vice-Tay's settings for 16 GB cards: the game's small buffers and read windows kept in the card's memory (4 GB through Resizable BAR). 16 -> 27 fps on an 8-core PC with an RTX 5080 there; not measured on other PCs yet")
+        .changed();
+    changed |= ui
         .checkbox(&mut rt.indoor_reflections, "Indoor floor reflections fix (frosted floors; may dull outdoor reflections)")
         .on_hover_text("Reflections that find nothing are held to the room's light instead of the sky's: clean floors indoors. Turn off if cars or windows outdoors look dull")
         .changed();
