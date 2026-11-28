@@ -3568,18 +3568,53 @@ impl HostHeap {
                 *views = Some(ListViews::new()?);
             }
             let views = views.as_mut()?;
+            let across = list_views_across();
             if views.recording != recording {
                 views.recording = recording;
-                views.made.clear();
+                if !across {
+                    views.made.clear();
+                    views.next = 0;
+                }
             }
             let twins = self.twins.get(index as usize).is_some();
-            if !views.made.contains_key(&words) {
+            // One made in an earlier recording (`list_views_across`): kept if its record still names the same view
+            // and that view is still made from the same host copy; else made again.
+            let fresh = match views.made.get_mut(&words) {
+                Some(m) if m.recording == recording => false,
+                Some(m) => {
+                    let good = m.anchor.is_some()
+                        && super::view_at(words[1], words[2]).as_ref() == Some(&m.view)
+                        && anchor_of(&m.view) == m.anchor;
+                    if good {
+                        m.recording = recording;
+                        m.listed.ready = (0, 0, false);
+                        m.listed.tabled = None;
+                        ACROSS[0].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    } else {
+                        ACROSS[1].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    !good
+                }
+                None => true,
+            };
+            if fresh {
+                views.made.remove(&words);
                 let view = super::view_at(words[1], words[2])?;
-                let at = 2 * views.made.len() as u32;
                 // (A constant buffer's bytes are copied for each draw.)
-                if at >= ListViews::SLOTS || matches!(view, View::Constant(..)) {
+                if matches!(view, View::Constant(..)) {
                     return None;
                 }
+                if views.next + 2 > ListViews::SLOTS {
+                    // Full: begun again (the descriptors were copied where they were used, by value).
+                    if !across {
+                        return None;
+                    }
+                    views.made.clear();
+                    views.next = 0;
+                }
+                let at = views.next;
+                views.next += 2;
+                let anchor = if across { anchor_of(&view) } else { None };
                 let twin = twinned(&view);
                 let kept = make_twinned(&view, views.slot(at), Some(views.slot(at + 1)))?;
                 let stride_word = view_stride_word(&view);
@@ -3589,7 +3624,7 @@ impl HostHeap {
                     ready: (0, 0, false),
                     tabled: None,
                 };
-                views.made.insert(words, ListView { view, at, twin, stride_word, kept, listed });
+                views.made.insert(words, ListView { view, recording, anchor, at, twin, stride_word, kept, listed });
             }
             let made = &views.made[&words];
             self.copy_from(index, views.slot(made.at));
@@ -4448,6 +4483,47 @@ fn unordered_range(base: u64, words: &[u32; 10]) -> Option<(u64, u64)> {
 
 /// The host resource a slot made by [`make`] views, if any.
 type Kept = Option<ID3D12Resource>;
+
+/// `VICTORY_LIST_VIEWS_ACROSS=1`: a thread keeps the descriptors it made for one recording of a list for the next
+/// ones, and makes one again only if its record names another view now or the view's host copy changed
+/// ([`anchor_of`]). The draw-recording threads made every view anew in each of a frame's ~217 recordings: making
+/// them (the driver's `CreateShaderResourceView`, `make_twinned`) was 11% of those threads' time in a player's
+/// profile (2026-11-27), and those threads ran 93% of the time. Off by default until measured.
+fn list_views_across() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| crate::switch::on("VICTORY_LIST_VIEWS_ACROSS"))
+}
+
+/// Views kept from an earlier recording and found good, and those made again ([`list_views_across`]).
+pub(crate) static ACROSS: [std::sync::atomic::AtomicU64; 2] = [const { std::sync::atomic::AtomicU64::new(0) }; 2];
+
+/// What a view's descriptor is made from, as far as it can change while the view's record stays the same: a
+/// texture's host copy (the object) with its first shown level and base, or a buffer view's host copy (the object)
+/// where the view is made on that copy itself. `None` for any other view: made again in every recording.
+fn anchor_of(view: &View) -> Option<(usize, u64)> {
+    let View::Shader(resource, desc) = view else { return None };
+    let resource = *resource as crate::object::This;
+    if let Some(copy) = crate::resource::host_copy(resource) {
+        let first = u64::from(crate::resource::first_shown(resource).unwrap_or(0));
+        return Some((std::sync::Arc::as_ptr(&copy) as usize, first | (u64::from(copy.base) << 32)));
+    }
+    let (data, len) = crate::resource::buffer_bytes(resource)?;
+    let desc = srv_desc(desc.as_ref()?);
+    let shadow = crate::shadow::find(data as u64, len)?;
+    let unit = element_size(&desc);
+    // SAFETY: a buffer view's description.
+    let own = unsafe { desc.Anonymous.Buffer };
+    let start = data as u64 + own.FirstElement * unit;
+    // Views off their copy's elements get bytes of their own (`view_home`): those are made again.
+    if view_bytes() && shadow.offset_in(start).is_some() {
+        let element = crate::resource::element(desc.Format.0 as u32).map_or(0, |(bytes, _)| bytes);
+        let raw = own.Flags.0 & D3D12_BUFFER_SRV_FLAG_RAW.0 != 0;
+        if off_elements(shadow.offset(start), own.StructureByteStride, raw, element) {
+            return None;
+        }
+    }
+    Some((std::sync::Arc::as_ptr(&shadow) as usize, data as u64 ^ len))
+}
 
 /// A structured buffer view (`first`, `count` elements of `stride` bytes,
 /// `offset` bytes into its host copy) as a raw view of the same bytes:
@@ -7089,6 +7165,10 @@ pub(crate) struct Listed {
 
 struct ListView {
     view: View,
+    /// The recording it was made or last found good in ([`list_views_across`]).
+    recording: u64,
+    /// What it was made from ([`anchor_of`]); `None`: made again in every recording.
+    anchor: Option<(usize, u64)>,
     /// Its descriptor's slot in [`ListViews`]; its raw twin's is the next.
     at: u32,
     twin: bool,
@@ -7113,6 +7193,8 @@ struct ListViews {
     step: usize,
     start: usize,
     made: std::collections::HashMap<[u32; 3], ListView, std::hash::BuildHasherDefault<crate::host::AddressHash>>,
+    /// The next free pair of slots.
+    next: u32,
 }
 
 impl ListViews {
@@ -7132,7 +7214,7 @@ impl ListViews {
                 .ok()?;
             let step = host.device.GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) as usize;
             let start = heap.GetCPUDescriptorHandleForHeapStart().ptr;
-            Some(ListViews { recording: 0, heap, step, start, made: Default::default() })
+            Some(ListViews { recording: 0, heap, step, start, made: Default::default(), next: 0 })
         }
     }
 

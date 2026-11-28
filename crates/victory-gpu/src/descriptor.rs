@@ -740,6 +740,14 @@ static SYNC_SPLIT: [std::sync::atomic::AtomicU64; 5] = [const { std::sync::atomi
 /// Nothing while no heap page changed.
 #[cfg(windows)]
 pub(crate) fn sync_line(frames: f64) {
+    let [kept, again] = [0, 1].map(|i| host::ACROSS[i].swap(0, std::sync::atomic::Ordering::Relaxed));
+    if kept + again > 0 {
+        tracing::info!(
+            "list views kept across recordings per frame (VICTORY_LIST_VIEWS_ACROSS=1): {:.0} found good, {:.0} made again",
+            kept as f64 / frames,
+            again as f64 / frames
+        );
+    }
     let [twins, moved, lost] = [0, 1, 2].map(|i| host::TWINS[i].swap(0, std::sync::atomic::Ordering::Relaxed));
     if twins > 0 {
         tracing::info!(

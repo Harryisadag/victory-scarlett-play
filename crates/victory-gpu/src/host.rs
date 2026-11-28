@@ -496,7 +496,42 @@ pub(crate) fn retire_resource(object: ID3D12Resource) {
         return;
     }
     RETIREMENTS[1].fetch_add(1, Ordering::Relaxed);
+    if retire_batch() {
+        let full = RETIRE_PENDING.with(|p| {
+            let mut p = p.borrow_mut();
+            p.push((started, Retired::Resource(object)));
+            p.len() >= 32
+        });
+        if full {
+            flush_retired();
+        }
+        return;
+    }
     RETIRED.lock().unwrap_or_else(|e| e.into_inner()).push_back((started, Retired::Resource(object)));
+}
+
+/// `VICTORY_RETIRE_BATCH=1`: a thread keeps what it retires and hands it to [`RETIRED`] 32 at a time, and when a
+/// host list closes ([`flush_retired`]), instead of taking the lock for each. The draw-recording threads replace
+/// descriptors' resources thousands of times a frame (`HostHeap::keep`); four of them met on that lock (a player's
+/// profile, 2026-11-27: `retire_resource` 10% of their time in `ntdll`). Held a little longer, never dropped sooner:
+/// [`bury`] takes from the front while the numbers are done. Off by default until measured.
+fn retire_batch() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| crate::switch::on("VICTORY_RETIRE_BATCH"))
+}
+
+thread_local! {
+    /// What this thread retired and has not handed to [`RETIRED`] yet ([`retire_batch`]).
+    static RETIRE_PENDING: std::cell::RefCell<Vec<(u64, Retired)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Hands this thread's retired objects to [`RETIRED`] under one lock ([`retire_batch`]).
+pub(crate) fn flush_retired() {
+    let pending = RETIRE_PENDING.with(|p| std::mem::take(&mut *p.borrow_mut()));
+    if pending.is_empty() {
+        return;
+    }
+    RETIRED.lock().unwrap_or_else(|e| e.into_inner()).extend(pending);
 }
 
 /// How many submissions later than it could (the last one that may use it
@@ -6957,6 +6992,7 @@ impl HostList {
 
     pub(crate) fn close(&self) {
         let _closing = crate::timeline::span("closing a host list");
+        flush_retired();
         self.left_open[0].store(0, Ordering::Release);
         self.flush_indirect();
         self.twins_to_depth();

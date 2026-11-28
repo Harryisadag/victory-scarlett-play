@@ -131,7 +131,10 @@ fn choose(threads: &mut HashMap<u32, Thread>, chosen: &mut Vec<u32>) {
         });
     }
     let mut ran: Vec<(u64, u32)> = Vec::new();
-    for (&id, t) in threads.iter_mut().filter(|(_, t)| !t.handle.is_null()) {
+    // Our own threads alone (named `victory-...`) unless `VICTORY_PROFILE_ALL=1`: walking a title thread's stack
+    // through its code's function tables faulted in `RtlLookupFunctionEntry` (read 0x29) and ended a run (2026-11-27).
+    let all = std::env::var_os("VICTORY_PROFILE_ALL").is_some_and(|v| v == "1");
+    for (&id, t) in threads.iter_mut().filter(|(_, t)| !t.handle.is_null() && (all || t.name.starts_with("victory"))) {
         t.now = cpu(t.handle);
         ran.push((t.now - t.last, id));
         t.last = t.now;
