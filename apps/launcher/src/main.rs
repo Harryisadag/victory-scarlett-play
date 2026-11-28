@@ -802,12 +802,12 @@ fn ui_rt(ui: &mut egui::Ui, rt: &mut config::RtSettings, nvidia: bool, gpu: &str
         let rtx50 = gpu.contains("RTX 50");
         egui::ComboBox::from_id_salt("rt-fg")
             .selected_text(match rt.framegen {
-                0 => "Ready - switch on in F1".to_owned(),
+                0 => "Off, or as saved in F1".to_owned(),
                 1 => "Not loaded".to_owned(),
                 n => format!("{n}x from the start"),
             })
             .show_ui(ui, |ui| {
-                changed |= ui.selectable_value(&mut rt.framegen, 0, "Ready - switch on in F1").changed();
+                changed |= ui.selectable_value(&mut rt.framegen, 0, "Off, or as saved in F1 (turning it on in F1 needs its Save and restart)").changed();
                 changed |= ui.selectable_value(&mut rt.framegen, 2, "2x from the start").changed();
                 for n in 3..=6 {
                     let label = if rtx50 { format!("{n}x from the start") } else { format!("{n}x from the start (needs an RTX 50)") };

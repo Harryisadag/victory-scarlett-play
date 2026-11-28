@@ -51,10 +51,16 @@ const LAUNCHER_OWNS: &[&str] = &[
     "VICTORY_REFLEX=",
 ];
 
-fn drop_menu_overrides() {
+/// `keep_framegen`: the launcher's frame generation is "Off / as F1 saved it", so a choice saved in F1 (with its
+/// "save and restart": a run starts with frame generation made ready only when it is on) stays for later starts.
+fn drop_menu_overrides(keep_framegen: bool) {
     let file = victory_home().join("victory-settings.txt");
     let Ok(text) = std::fs::read_to_string(&file) else { return };
-    let kept: Vec<&str> = text.lines().filter(|l| !LAUNCHER_OWNS.iter().any(|k| l.trim_start().to_ascii_uppercase().starts_with(k))).collect();
+    let owned = |l: &str| {
+        let l = l.trim_start().to_ascii_uppercase();
+        LAUNCHER_OWNS.iter().any(|k| l.starts_with(k)) && !(keep_framegen && l.starts_with("VICTORY_MENU_FRAMEGEN="))
+    };
+    let kept: Vec<&str> = text.lines().filter(|l| !owned(l)).collect();
     if kept.len() != text.lines().count() {
         let _ = std::fs::write(&file, kept.join("\r\n") + "\r\n");
     }
@@ -262,7 +268,7 @@ pub fn args(rt: &RtSettings, series_s: bool, mouse: bool, cut_hold: bool) -> Vec
 /// sets its own; only the paths are given).
 pub fn play_command(exe: &Path, cfg: &Config) -> Result<Command, String> {
     let game_dir = cfg.game_dir.as_ref().ok_or("no game folder")?;
-    drop_menu_overrides();
+    drop_menu_overrides(cfg.rt.framegen == 0);
     let mut cmd = Command::new(exe);
     for (k, _) in std::env::vars_os() {
         if k.to_string_lossy().starts_with("VICTORY_") {
