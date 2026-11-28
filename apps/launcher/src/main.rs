@@ -3,6 +3,7 @@
 #![windows_subsystem = "windows"]
 
 mod audio;
+mod checks;
 mod config;
 mod game;
 mod hardware;

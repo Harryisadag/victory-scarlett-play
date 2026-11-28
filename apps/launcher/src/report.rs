@@ -53,6 +53,7 @@ pub fn build(cfg: &Config, hw: &Hardware, s: &Session, build: &str) -> serde_jso
         "crash_files": s.crash_files.iter().filter_map(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).collect::<Vec<_>>(),
         "tdr_delay": crate::hardware::tdr_delay(),
         "outcome": s.outcome,
+        "hint": s.hint,
         "hardware": {
             "cpu": hw.cpu, "threads": hw.threads, "ram_gb": hw.ram_gb, "commit_limit_gb": hw.commit_limit_gb,
             "gpu": hw.gpu, "vram_gb": hw.vram_gb, "driver": hw.driver, "windows": hw.windows,

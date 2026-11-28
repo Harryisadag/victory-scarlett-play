@@ -35,6 +35,8 @@ pub struct Session {
     pub preset: String,
     /// Crash files the layer wrote (copied into the logs folder).
     pub crash_files: Vec<PathBuf>,
+    /// What probably went wrong, in plain words (`checks::hint`).
+    pub hint: Option<String>,
 }
 
 pub struct Job {
@@ -256,6 +258,13 @@ pub fn setup(exe: PathBuf, cfg: Config, hw: Hardware, record: bool) -> Job {
 pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots: bool) -> Job {
     Job::start(move |s, cancel| {
         let game_dir = cfg.game_dir.clone().ok_or("no game folder")?;
+        // Before anything starts: room for the shader cache, and a game program that is one.
+        let low_space = crate::checks::space(&config::home())?;
+        crate::checks::game_program(&game::game_exe(&game_dir))?;
+        if let Some(warn) = &low_space {
+            say(s, "Low disk space", warn, -1.0);
+            std::thread::sleep(Duration::from_secs(3));
+        }
         let preset = presets::chosen(&cfg, &hw);
         let rt = cfg.engine == Engine::NvidiaRt;
         let started_at = std::time::SystemTime::now();
@@ -432,11 +441,17 @@ pub fn play(exe: PathBuf, cfg: Config, hw: Hardware, refresh: bool, screenshots:
                 None => "ended".to_owned(),
             }
         };
+        let failed = !outcome.starts_with("closed");
+        let hint = failed
+            .then(|| std::fs::read_to_string(&log).ok())
+            .flatten()
+            .and_then(|text| crate::checks::hint(&text, watch.lost_device).map(str::to_owned))
+            .or(low_space);
         let mut st = s.lock().unwrap();
         st.step = format!("Game ended: {outcome}");
-        st.detail = String::new();
+        st.detail = hint.clone().unwrap_or_default();
         let preset = if rt { "nvidia-rt".to_owned() } else { preset.name.to_owned() };
-        st.session = Some(Session { minutes, outcome, watch, preset, crash_files });
+        st.session = Some(Session { minutes, outcome, watch, preset, crash_files, hint });
         Ok(())
     })
 }
